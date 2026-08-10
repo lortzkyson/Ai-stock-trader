@@ -38,16 +38,20 @@ cp .env.example .env   # then fill in your Alpaca API key/secret
 ## Common commands
 
 ```bash
-make test        # pytest with coverage
-make lint         # ruff
-make typecheck    # mypy
-make check        # lint + typecheck + test
-make data-quality  # flag gaps/dupes/impossible values in cached bar data
-make backtest      # run the backtester (from Phase 5 onward)
-make paper-trade   # run the live paper-trading loop (from Phase 7 onward)
+make test         # pytest with coverage
+make lint          # ruff
+make typecheck     # mypy
+make check         # lint + typecheck + test
+make data-quality   # flag gaps/dupes/impossible values in cached bar data
+make train           # pull training data + walk-forward train + write model card
+make backtest         # run the Phase 5 event-driven backtest over Phase 4's OOS periods
+make monitor           # print live account/positions/PDT-count dashboard (paper)
+
+# Kill switch takes an action argument, so call it directly:
+.venv/bin/python scripts/kill_switch.py {status,engage,disengage} [--flatten]
 ```
 
-`make backtest` and `make paper-trade` are placeholders until the corresponding phases build `src/backtest/run.py` and `src/execution/run.py`.
+There is no persistent, always-on paper-trading loop in this repo. `src/execution/` and `src/monitoring/` are complete, tested against the real Alpaca paper endpoint (order submit/cancel, reconciliation, kill switch, dashboard all exercised live, not just mocked), and ready to be wired into a scheduled/long-running process — but nothing here runs unattended by itself. Standing up an actual multi-week paper-trading track record (which Phase 8's go/no-go review needs) is a deliberate next step for you to kick off, not something started automatically.
 
 ## Experiment log and holdout
 
@@ -60,8 +64,8 @@ Every training/backtest run gets appended to `experiment_log.csv` (git-tracked, 
 - [x] Phase 2 — data pipeline
 - [x] Phase 3 — labeling and features
 - [x] Phase 4 — model training
-- [x] Phase 5 — backtesting engine (this commit)
+- [x] Phase 5 — backtesting engine
 - [x] Phase 6 — risk management layer (built before Phase 5 since the backtester depends on it)
-- [ ] Phase 7 — paper trading integration
+- [x] Phase 7 — paper trading integration (this commit)
 - [ ] Phase 8 — go/no-go review before real money
 - [ ] Phase 9 — ongoing monitoring & retraining

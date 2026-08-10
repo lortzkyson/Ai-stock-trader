@@ -1,4 +1,4 @@
-.PHONY: install test lint typecheck check data-quality backtest paper-trade
+.PHONY: install test lint typecheck check data-quality train backtest monitor kill-switch
 
 VENV := .venv/bin
 
@@ -21,8 +21,15 @@ check: lint typecheck test
 data-quality:
 	$(VENV)/python scripts/check_data_quality.py data/cache/1Min/*.parquet
 
-backtest:
-	$(VENV)/python -m backtest.run
+train:
+	$(VENV)/python scripts/fetch_training_data.py
+	$(VENV)/python scripts/train_model.py
 
-paper-trade:
-	$(VENV)/python -m execution.run --mode paper
+backtest:
+	$(VENV)/python scripts/run_backtest.py
+
+monitor:
+	$(VENV)/python scripts/monitor.py
+
+# Kill switch takes an action argument, so call it directly rather than via make:
+#   .venv/bin/python scripts/kill_switch.py {status,engage,disengage} [--flatten]

@@ -12,7 +12,10 @@ htmlcov/
 data/raw/
 data/cache/
 data/models/
+data/execution_log.jsonl
+data/KILL_SWITCH_ENGAGED
 *.parquet
 *.joblib
+*.jsonl
 
 .DS_Store
