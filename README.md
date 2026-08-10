@@ -2,6 +2,8 @@
 
 Day-trading AI system, built in phases. Start with [docs/pre-mortem.md](docs/pre-mortem.md) — it's the living design spec every phase below follows. Key constraints from that doc: starting equity is under $25k (PDT rule applies), the strategy is a hybrid of day trades and occasional multi-day swing holds, and the target metric is **expectancy per trade + Sharpe/Sortino**, not raw win rate.
 
+> **Current status: NO-GO on real money.** All 9 phases are built and tested, but [docs/go_live_review.md](docs/go_live_review.md) is explicit that the model doesn't yet show an edge over a random baseline and there's no live/paper trading track record. No live-order-submission code exists anywhere in this repo. See [docs/runbook.md](docs/runbook.md) for day-to-day operation of what *is* here.
+
 ## Architecture
 
 Each `src/` package corresponds to one build phase and one concern. The backtester and the live executor both call into `risk/` and `features/` rather than each having their own copy — that's deliberate (see pre-mortem, guard #9 and the Phase 7 parity test).
@@ -66,6 +68,6 @@ Every training/backtest run gets appended to `experiment_log.csv` (git-tracked, 
 - [x] Phase 4 — model training
 - [x] Phase 5 — backtesting engine
 - [x] Phase 6 — risk management layer (built before Phase 5 since the backtester depends on it)
-- [x] Phase 7 — paper trading integration (this commit)
-- [ ] Phase 8 — go/no-go review before real money
-- [ ] Phase 9 — ongoing monitoring & retraining
+- [x] Phase 7 — paper trading integration
+- [x] Phase 8 — go/no-go review before real money: **[NO-GO](docs/go_live_review.md)** — no live-trading code exists, none should until this changes
+- [x] Phase 9 — ongoing monitoring & retraining (this commit)

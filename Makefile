@@ -1,4 +1,4 @@
-.PHONY: install test lint typecheck check data-quality train backtest monitor kill-switch
+.PHONY: install test lint typecheck check data-quality train backtest monitor performance-report
 
 VENV := .venv/bin
 
@@ -30,6 +30,9 @@ backtest:
 
 monitor:
 	$(VENV)/python scripts/monitor.py
+
+performance-report:
+	$(VENV)/python scripts/generate_performance_report.py
 
 # Kill switch takes an action argument, so call it directly rather than via make:
 #   .venv/bin/python scripts/kill_switch.py {status,engage,disengage} [--flatten]
