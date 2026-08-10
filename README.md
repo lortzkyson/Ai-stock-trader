@@ -58,8 +58,8 @@ Every training/backtest run gets appended to `experiment_log.csv` (git-tracked, 
 - [x] Phase 0 — pre-mortem / design spec
 - [x] Phase 1 — project scaffold
 - [x] Phase 2 — data pipeline
-- [x] Phase 3 — labeling and features (this commit)
-- [ ] Phase 4 — model training
+- [x] Phase 3 — labeling and features
+- [x] Phase 4 — model training (this commit)
 - [ ] Phase 5 — backtesting engine
 - [ ] Phase 6 — risk management layer
 - [ ] Phase 7 — paper trading integration

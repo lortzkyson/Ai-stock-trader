@@ -11,6 +11,8 @@ htmlcov/
 
 data/raw/
 data/cache/
+data/models/
 *.parquet
+*.joblib
 
 .DS_Store
