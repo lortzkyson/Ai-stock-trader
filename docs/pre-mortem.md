@@ -81,7 +81,7 @@ Every run in Phase 4 (training) and Phase 5 (backtesting) appends a row before m
 
 **Final holdout:** A contiguous historical period, chosen *now* and recorded below, is set aside and excluded from all data used in Phases 2–7 (data exploration, feature development, training, walk-forward validation, and iterative backtesting). It is used exactly once, in Phase 8, as the last check before considering real-money deployment. If Phase 8 holdout performance is materially worse than the walk-forward validation performance from Phase 4, that is a signal of overfitting through iteration, and the correct response is to revisit the process (and account for it in the go/no-go decision) — not to retune against the holdout and re-check it.
 
-- **Holdout period:** to be fixed as the most recent complete 3-month period available once historical data is pulled in Phase 2 (e.g. if data runs through July 2026, holdout = May–July 2026). Recording it as "most recent 3 months" rather than a hardcoded date range here so it stays meaningful regardless of when Phase 2 actually runs — Phase 2 should pin the exact dates into this document once the data range is known.
+- **Holdout period (pinned 2026-08-10, Phase 2):** `2026-05-01` through `2026-07-31` inclusive — the most recent complete 3 calendar months as of when Phase 2's live Alpaca connection was validated. No feature development, training, walk-forward validation, or backtest iteration in Phases 3–7 may read data from this window. It is used exactly once, in Phase 8.
 - **Rule:** no code in Phases 2–7 reads, prints, plots, or otherwise inspects data inside the holdout window. This should be enforced mechanically where practical (e.g. the data-loading utility takes an explicit `exclude_holdout: bool` and defaults to `True`).
 
 ---
@@ -90,4 +90,4 @@ Every run in Phase 4 (training) and Phase 5 (backtesting) appends a row before m
 
 - [x] Starting account equity: **under $25,000** → PDT rule applies.
 - [x] Strategy shape: **hybrid** (day trades + occasional multi-day swing holds), driven by the PDT constraint above.
-- [ ] Exact holdout date range — to be pinned in Phase 2 once historical data is pulled.
+- [x] Exact holdout date range: **2026-05-01 through 2026-07-31**, pinned in Phase 2.
