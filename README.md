@@ -60,8 +60,8 @@ Every training/backtest run gets appended to `experiment_log.csv` (git-tracked, 
 - [x] Phase 2 — data pipeline
 - [x] Phase 3 — labeling and features
 - [x] Phase 4 — model training
-- [ ] Phase 5 — backtesting engine
-- [x] Phase 6 — risk management layer (this commit, built before Phase 5 since the backtester depends on it)
+- [x] Phase 5 — backtesting engine (this commit)
+- [x] Phase 6 — risk management layer (built before Phase 5 since the backtester depends on it)
 - [ ] Phase 7 — paper trading integration
 - [ ] Phase 8 — go/no-go review before real money
 - [ ] Phase 9 — ongoing monitoring & retraining

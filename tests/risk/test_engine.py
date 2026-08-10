@@ -94,6 +94,10 @@ def test_pdt_blocks_fourth_intraday_round_trip_under_25k() -> None:
             is_intended_day_trade=True,
         )
         assert decision.approved
+        # evaluate_entry only checks/sizes — recording is an explicit, separate
+        # step the caller does once it knows the round trip actually closed
+        # same-day (see risk/engine.py's evaluate_entry docstring).
+        engine.day_trade_tracker.record_day_trade(d)
 
     engine.update_equity(calendar[3], equity)
     decision = engine.evaluate_entry(

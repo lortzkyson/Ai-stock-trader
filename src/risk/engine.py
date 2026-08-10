@@ -55,6 +55,15 @@ class RiskEngine:
         trading_calendar: list[date],
         is_intended_day_trade: bool,
     ) -> TradeDecision:
+        """Check and size a proposed entry. Does NOT itself record a day trade —
+        callers must call `self.day_trade_tracker.record_day_trade(date)`
+        explicitly once they know for certain a round trip closed same-day
+        (typically at exit, not entry — a caller often can't know in advance
+        whether a position will end up being a day trade). Bundling the
+        record into this method previously caused every trade evaluated with
+        is_intended_day_trade=True to be recorded here *and* recorded again
+        by the caller at exit, double-counting every actual day trade.
+        """
         if self.drawdown_breaker.is_tripped:
             return TradeDecision(False, "max_drawdown_circuit_breaker_tripped")
         if self.daily_loss_limit.is_tripped:
@@ -76,9 +85,6 @@ class RiskEngine:
 
         stop_price = entry_price * (1 - self.config.barrier_config.stop_loss_pct)
         target_price = entry_price * (1 + self.config.barrier_config.profit_target_pct)
-
-        if is_intended_day_trade:
-            self.day_trade_tracker.record_day_trade(as_of_date)
 
         return TradeDecision(
             approved=True,
