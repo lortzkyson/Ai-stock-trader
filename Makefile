@@ -1,4 +1,4 @@
-.PHONY: install test lint typecheck check backtest paper-trade
+.PHONY: install test lint typecheck check data-quality backtest paper-trade
 
 VENV := .venv/bin
 
@@ -17,6 +17,9 @@ typecheck:
 	$(VENV)/mypy src
 
 check: lint typecheck test
+
+data-quality:
+	$(VENV)/python scripts/check_data_quality.py data/cache/1Min/*.parquet
 
 backtest:
 	$(VENV)/python -m backtest.run

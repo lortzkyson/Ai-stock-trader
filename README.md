@@ -18,11 +18,20 @@ Each `src/` package corresponds to one build phase and one concern. The backtest
 
 `tests/` mirrors `src/` package-for-package.
 
+## Known limitations
+
+- **Survivorship bias in the ticker universe** (`data/universe.csv`): the seed universe is a manually curated list of today's liquid large-cap names, not a point-in-time index membership feed. It excludes tickers that were delisted, acquired, or went bankrupt during any historical backtest period, so backtests will overstate performance relative to a survivorship-bias-free universe. Getting point-in-time constituent data typically requires a paid reference-data subscription; this is deferred rather than solved. See `src/data/universe.py` and [docs/pre-mortem.md](docs/pre-mortem.md) guard #2.
+- **Halt/illiquidity detection is a proxy**, not a labeled feed: `src/data/quality.py` flags any trading day missing more than 5 minutes of expected minute bars as "halt-like" and excludes it from cleaned output. This catches real halts and severe illiquidity but could also flag a legitimately quiet session; the reasoning is documented in that module's docstring.
+
+## Data feed
+
+Historical market data comes from Alpaca (`src/data/alpaca_client.py`), using the full consolidated SIP feed at no cost — see [docs/data_feed_decision.md](docs/data_feed_decision.md) for why the free plan's real-time-only IEX restriction doesn't apply to historical/backtest queries, and what that means for live trading in Phase 7+.
+
 ## Setup
 
 ```bash
 make install
-cp .env.example .env   # then fill in your Alpaca + market-data keys
+cp .env.example .env   # then fill in your Alpaca API key/secret
 ```
 
 ## Common commands
@@ -32,6 +41,7 @@ make test        # pytest with coverage
 make lint         # ruff
 make typecheck    # mypy
 make check        # lint + typecheck + test
+make data-quality  # flag gaps/dupes/impossible values in cached bar data
 make backtest      # run the backtester (from Phase 5 onward)
 make paper-trade   # run the live paper-trading loop (from Phase 7 onward)
 ```
@@ -45,8 +55,8 @@ Every training/backtest run gets appended to `experiment_log.csv` (git-tracked, 
 ## Status
 
 - [x] Phase 0 — pre-mortem / design spec
-- [x] Phase 1 — project scaffold (this commit)
-- [ ] Phase 2 — data pipeline
+- [x] Phase 1 — project scaffold
+- [x] Phase 2 — data pipeline (this commit)
 - [ ] Phase 3 — labeling and features
 - [ ] Phase 4 — model training
 - [ ] Phase 5 — backtesting engine
