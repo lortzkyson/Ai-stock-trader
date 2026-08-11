@@ -16,6 +16,7 @@ data/execution_log.jsonl
 data/KILL_SWITCH_ENGAGED
 data/risk_state.json
 data/open_positions_state.json
+data/cron.log
 *.parquet
 *.joblib
 *.jsonl
