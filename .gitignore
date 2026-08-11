@@ -22,3 +22,6 @@ data/cron.log
 *.jsonl
 
 .DS_Store
+
+data/cache/ticker_discovery/
+data/cache/master_ticker_universe.txt
