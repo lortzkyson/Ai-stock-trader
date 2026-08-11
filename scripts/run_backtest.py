@@ -31,13 +31,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SYMBOLS = load_seed_universe()
 START = date(2025, 3, 1)
 END = date(2026, 4, 30)
-BARRIER_CONFIG = TripleBarrierConfig()
+BARRIER_CONFIG = TripleBarrierConfig(max_holding_bars=390)  # 1 session — see scripts/train_model.py
 N_FOLDS = 5
 EMBARGO_DAYS = 4
 PROBABILITY_THRESHOLD = 0.5
 STARTING_EQUITY = 10_000.0  # under $25k -> exercises the PDT path deliberately
 
-REPORT_PATH = REPO_ROOT / "reports" / f"backtest_{datetime.now(timezone.utc):%Y-%m-%d}.md"
+# Includes time, not just date: two runs on the same day previously
+# silently clobbered each other's report (see docs/go_live_review.md).
+REPORT_PATH = REPO_ROOT / "reports" / f"backtest_{datetime.now(timezone.utc):%Y-%m-%d_%H%M%S}.md"
 
 
 def fmt(x: float) -> str:
@@ -161,9 +163,9 @@ def main() -> int:
 
 
 def _feature_columns() -> list[str]:
-    from features.engineering import FEATURE_COLUMNS
+    from models.dataset import ALL_FEATURE_COLUMNS
 
-    return list(FEATURE_COLUMNS)
+    return list(ALL_FEATURE_COLUMNS)
 
 
 def _average_metrics(metrics_list: list[dict]) -> dict:

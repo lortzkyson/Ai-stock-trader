@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from features.engineering import FEATURE_COLUMNS
+from models.dataset import ALL_FEATURE_COLUMNS as FEATURE_COLUMNS
 from models.metrics import compute_signal_metrics
 from models.validation import generate_walk_forward_folds, split_fold
 

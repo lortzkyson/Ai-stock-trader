@@ -1,10 +1,11 @@
 """Live signal generation.
 
 Reuses the exact same feature-computation code as the backtester
-(`features.engineering.add_features`) rather than a separate live
-reimplementation — a training/serving mismatch here is a common, hard-to-notice
-source of live underperformance. See tests/execution/test_parity.py for the
-check that feeding identical bars through both paths gives identical features.
+(`features.engineering.add_features` + `features.ict_concepts.add_ict_features`)
+rather than a separate live reimplementation — a training/serving mismatch
+here is a common, hard-to-notice source of live underperformance. See
+tests/execution/test_parity.py for the check that feeding identical bars
+through both paths gives identical features.
 """
 
 from __future__ import annotations
@@ -15,7 +16,9 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from features.engineering import FEATURE_COLUMNS, add_features
+from features.engineering import add_features
+from features.ict_concepts import add_ict_features
+from models.dataset import ALL_FEATURE_COLUMNS as FEATURE_COLUMNS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_MODEL_PATH = REPO_ROOT / "data" / "models" / "production_model.joblib"
@@ -34,6 +37,7 @@ def compute_live_signal(
     enough warmup history yet for the rolling-window features to be valid.
     """
     featured = add_features(bars)
+    featured = add_ict_features(featured)
     latest = featured.iloc[[-1]]
     if latest[FEATURE_COLUMNS].isna().any(axis=1).iloc[0]:
         return 0, float("nan")

@@ -18,9 +18,15 @@ import pandas as pd
 import pytest
 
 from execution.signal import compute_live_signal
-from features.engineering import FEATURE_COLUMNS, add_features
+from features.engineering import add_features
+from features.ict_concepts import add_ict_features
+from models.dataset import ALL_FEATURE_COLUMNS as FEATURE_COLUMNS
 
 from .conftest import make_clean_bars
+
+
+def _batch_features(bars: pd.DataFrame) -> pd.DataFrame:
+    return add_ict_features(add_features(bars))
 
 
 class _DummyModel:
@@ -32,7 +38,7 @@ def test_live_and_backtest_feature_paths_agree_on_identical_bars() -> None:
     bars = make_clean_bars(["2026-01-05", "2026-01-06"])
     warmup = 60  # enough bars for the longest rolling window (60) to be valid
 
-    backtest_features = add_features(bars)
+    backtest_features = _batch_features(bars)
     model = _DummyModel()
 
     for i in range(warmup, len(bars)):
@@ -41,7 +47,7 @@ def test_live_and_backtest_feature_paths_agree_on_identical_bars() -> None:
         predicted, proba = compute_live_signal(window, model)
         assert not math.isnan(proba)  # enough warmup here for a real prediction
 
-        live_row = add_features(window).iloc[-1]
+        live_row = _batch_features(window).iloc[-1]
         backtest_row = backtest_features.iloc[i]
         for col in FEATURE_COLUMNS:
             live_val, backtest_val = live_row[col], backtest_row[col]

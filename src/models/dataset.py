@@ -11,7 +11,10 @@ from data.cache import DEFAULT_CACHE_DIR, read_cached
 from data.holdout import exclude_holdout
 from data.quality import check_quality, clean_bars
 from features.engineering import FEATURE_COLUMNS, add_features
+from features.ict_concepts import ICT_FEATURE_COLUMNS, add_ict_features
 from features.labeling import TripleBarrierConfig, label_triple_barrier
+
+ALL_FEATURE_COLUMNS = FEATURE_COLUMNS + ICT_FEATURE_COLUMNS
 
 
 def build_symbol_dataset(
@@ -33,6 +36,7 @@ def build_symbol_dataset(
     bars = exclude_holdout(bars)
     labeled = label_triple_barrier(bars, barrier_config)
     featured = add_features(labeled)
+    featured = add_ict_features(featured)
     featured["symbol"] = symbol
     return featured
 
@@ -48,7 +52,7 @@ def build_dataset(
         build_symbol_dataset(s, start, end, barrier_config, cache_dir) for s in symbols
     ]
     combined = pd.concat(frames, ignore_index=True)
-    combined = combined.dropna(subset=["label", *FEATURE_COLUMNS]).copy()
+    combined = combined.dropna(subset=["label", *ALL_FEATURE_COLUMNS]).copy()
     combined["date"] = pd.to_datetime(combined["timestamp"]).dt.date
     combined["target"] = (combined["label"] == 1).astype(int)
     return combined.sort_values("timestamp").reset_index(drop=True)

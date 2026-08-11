@@ -42,7 +42,9 @@ def main() -> int:
         return 0
 
     flags = compare_to_baseline(live_metrics, BACKTEST_BASELINE)
-    report_path = REPO_ROOT / "reports" / f"performance_{datetime.now(timezone.utc):%Y-%m-%d}.md"
+    # Includes time, not just date: same-day reruns previously clobbered each
+    # other's report file (see docs/go_live_review.md).
+    report_path = REPO_ROOT / "reports" / f"performance_{datetime.now(timezone.utc):%Y-%m-%d_%H%M%S}.md"
     lines = [f"# Performance Report ({datetime.now(timezone.utc):%Y-%m-%d})\n"]
     lines.append(f"Live trades reconstructed from fills: {live_metrics['n_trades']}\n")
     lines.append("| metric | live | backtest baseline |")

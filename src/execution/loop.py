@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from alpaca.data.enums import DataFeed
@@ -42,7 +43,8 @@ from execution.structured_logging import DEFAULT_LOG_PATH, StructuredLogger
 from risk.engine import RiskConfig, RiskEngine
 from risk.state_persistence import DEFAULT_STATE_PATH, load_risk_state, save_risk_state
 
-WARMUP_LOOKBACK_MINUTES = 90  # >= the longest rolling window (60 bars) in features.engineering
+SESSION_START = "09:30"
+_ET = ZoneInfo("America/New_York")
 
 
 @dataclass
@@ -79,6 +81,26 @@ def _fetch_live_bars(client: AlpacaBarsClient, symbol: str, lookback_minutes: in
     # look like a near-total "halt" relative to a 390-minute session and get
     # wrongly stripped out entirely. Skip that check here; it's Phase 2's
     # data-pipeline concern for historical pulls, not this loop's.
+    keep = ~find_duplicate_timestamps(raw) & ~find_impossible_values(raw)
+    cleaned = raw.loc[keep].reset_index(drop=True)
+    return filter_regular_session(cleaned)
+
+
+def _fetch_session_bars(client: AlpacaBarsClient, symbol: str) -> pd.DataFrame:
+    """Fetch from today's session open through now — required for the PO3/AMD
+    features (accumulation range, sweeps), which are anchored to session open,
+    not a rolling lookback window. A rolling window would silently miss the
+    opening range any time after mid-morning and break those features.
+    """
+    now_et = datetime.now(timezone.utc).astimezone(_ET)
+    hour, minute = (int(x) for x in SESSION_START.split(":"))
+    session_open = now_et.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    end = datetime.now(timezone.utc)
+    query = BarsQuery(symbols=[symbol], start=session_open, end=end, feed=DataFeed.IEX)
+    raw = client.fetch_bars(query)
+    if raw.empty:
+        return raw
+
     keep = ~find_duplicate_timestamps(raw) & ~find_impossible_values(raw)
     cleaned = raw.loc[keep].reset_index(drop=True)
     return filter_regular_session(cleaned)
@@ -214,7 +236,7 @@ def _check_entries(
         if symbol in open_positions:
             continue
 
-        bars = _fetch_live_bars(ctx.bars_client, symbol, WARMUP_LOOKBACK_MINUTES)
+        bars = _fetch_session_bars(ctx.bars_client, symbol)
         if len(bars) < 60:
             continue
 

@@ -42,6 +42,23 @@ def test_minutes_since_open_resets_each_session() -> None:
     assert result["minutes_since_open"].max() == 389  # 390-bar session, 0-indexed
 
 
+def test_minutes_since_open_correct_when_input_is_utc() -> None:
+    # Regression test: real cached bars are stored in UTC (see
+    # src/data/quality.py's own UTC-vs-exchange-local fix), not
+    # America/New_York like this module's synthetic test fixtures. Feeding
+    # UTC-timestamped data caught a real bug where "session open" silently
+    # meant midnight-UTC-plus-9:30 rather than 9:30 ET.
+    bars = make_clean_bars(["2026-01-05", "2026-01-06"])
+    bars = bars.assign(timestamp=pd.to_datetime(bars["timestamp"]).dt.tz_convert("UTC"))
+
+    result = add_features(bars)
+    ts = pd.to_datetime(result["timestamp"])
+    first_of_day = ts.dt.date != ts.dt.date.shift(1)
+
+    assert (result.loc[first_of_day, "minutes_since_open"] == 0).all()
+    assert result["minutes_since_open"].max() == 389
+
+
 def test_rsi_is_bounded_zero_to_hundred() -> None:
     bars = make_clean_bars(["2026-01-05", "2026-01-06"])
     result = add_features(bars)

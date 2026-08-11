@@ -31,10 +31,23 @@ FEATURE_COLUMNS = (
 )
 
 
-def _minutes_since_open(timestamp_col: pd.Series, session_start: str = SESSION_START) -> pd.Series:
+def _minutes_since_open(
+    timestamp_col: pd.Series,
+    session_start: str = SESSION_START,
+    session_tz: str = "America/New_York",
+) -> pd.Series:
     """Minutes elapsed since the session open — a deterministic function of the
-    bar's own timestamp (captures open/close intraday effects, no lookahead)."""
+    bar's own timestamp (captures open/close intraday effects, no lookahead).
+
+    Real cached bars are stored in UTC (see src/data/quality.py's own
+    UTC-vs-exchange-local fix) — converting to `session_tz` first is required,
+    not optional, or "session open" ends up meaning midnight-UTC-plus-9:30
+    rather than 9:30 ET. Synthetic test fixtures that pre-localize timestamps
+    to America/New_York can hide this bug; see the regression test using
+    UTC-timestamped data.
+    """
     ts = pd.to_datetime(timestamp_col)
+    ts = ts.dt.tz_localize(session_tz) if ts.dt.tz is None else ts.dt.tz_convert(session_tz)
     hour, minute = (int(x) for x in session_start.split(":"))
     session_open = ts.dt.normalize() + pd.Timedelta(hours=hour, minutes=minute)
     return (ts - session_open).dt.total_seconds() / 60.0
