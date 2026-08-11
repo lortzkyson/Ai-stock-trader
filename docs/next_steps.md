@@ -22,6 +22,21 @@ Decision made: pursue a **documented anomaly with a structural reason to persist
 - **Daily bars: available and good.** Alpaca gives ~10.5 years (2016-01 → present) of SIP-quality adjusted daily bars, free. Far more statistical power than the 14 months of minute bars used so far.
 - **Earnings data: NOT available from Alpaca.** Its corporate-actions endpoint covers splits, dividends, mergers, spinoffs, name changes — no earnings dates and no consensus estimates.
 
+### Progress so far (committed, not yet run end-to-end)
+
+Three new modules are built, linted, typechecked, and committed — but **the strategy has not been backtested yet**. Nothing here has produced a number, so nothing here is evidence of anything:
+
+- `src/data/daily_bars.py` — batched daily-bar fetching + panel caching
+- `src/strategies/momentum.py` — canonical 12-1 cross-sectional momentum
+- `src/backtest/portfolio.py` — monthly-rebalance portfolio backtester
+
+**Remaining to run it:**
+1. A universe-screening step (fetch a recent window across NYSE+NASDAQ, filter by price ≥ $5 and dollar volume ≥ $5M) — Alpaca has 8,470 tradable NYSE/NASDAQ names; screening all of them is ~17 batched requests, roughly 4 minutes.
+2. Fetch ~10 years of daily bars for the surviving universe.
+3. A runner script wiring screen → fetch → momentum → portfolio backtest → report.
+4. Benchmark against buy-and-hold over the identical window — this is the number that actually matters.
+5. Tests for the three new modules (none written yet).
+
 ### The fork to resolve first
 
 **PEAD needs an earnings surprise measure**, which normally requires consensus EPS estimates (paid data). Two workarounds:
