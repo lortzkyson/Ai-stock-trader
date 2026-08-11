@@ -49,11 +49,14 @@ make train           # pull training data + walk-forward train + write model car
 make backtest         # run the Phase 5 event-driven backtest over Phase 4's OOS periods
 make monitor           # print live account/positions/PDT-count dashboard (paper)
 
+# Runs one iteration and exits (kill switch/market-clock check, exits, entries, state persistence):
+.venv/bin/python scripts/paper_trading_loop.py
+
 # Kill switch takes an action argument, so call it directly:
 .venv/bin/python scripts/kill_switch.py {status,engage,disengage} [--flatten]
 ```
 
-There is no persistent, always-on paper-trading loop in this repo. `src/execution/` and `src/monitoring/` are complete, tested against the real Alpaca paper endpoint (order submit/cancel, reconciliation, kill switch, dashboard all exercised live, not just mocked), and ready to be wired into a scheduled/long-running process — but nothing here runs unattended by itself. Standing up an actual multi-week paper-trading track record (which Phase 8's go/no-go review needs) is a deliberate next step for you to kick off, not something started automatically.
+`scripts/paper_trading_loop.py` is complete and verified against the real Alpaca paper endpoint, but it is **not scheduled to run automatically** — see [docs/runbook.md](docs/runbook.md) for what it does each iteration and how to schedule it (cron/launchd) to actually accumulate a multi-week paper-trading track record, which Phase 8's go/no-go review needs before real money is even worth discussing.
 
 ## Experiment log and holdout
 

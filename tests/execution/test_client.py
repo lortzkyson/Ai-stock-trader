@@ -36,3 +36,13 @@ def test_with_retry_raises_after_max_attempts() -> None:
 
     with pytest.raises(OrderSubmissionError):
         client._with_retry(always_fails)
+
+
+def test_is_market_open_reflects_clock_response() -> None:
+    class _FakeClock:
+        is_open = True
+
+    client = AlpacaExecutionClient(api_key="dummy", secret_key="dummy")
+    client._client.get_clock = lambda: _FakeClock()  # type: ignore[method-assign]
+
+    assert client.is_market_open() is True

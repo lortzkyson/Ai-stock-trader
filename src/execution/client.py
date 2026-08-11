@@ -105,6 +105,10 @@ class AlpacaExecutionClient:
         account = cast(Any, self._with_retry(self._client.get_account))
         return float(account.equity)
 
+    def is_market_open(self) -> bool:
+        clock = cast(Any, self._with_retry(self._client.get_clock))
+        return bool(clock.is_open)
+
     def close_all_positions(self) -> None:
         """Kill-switch flatten: cancel all open orders and close every position."""
         self._with_retry(self._client.cancel_orders)

@@ -1,6 +1,24 @@
 # Runbook
 
-**Current status: paper-trading infrastructure only, nothing running unattended, real money not yet approved — see [docs/go_live_review.md](go_live_review.md) for the current NO-GO and why.** This runbook describes the maintenance discipline to run once that changes, and what's already usable today (`make monitor`, the kill switch) regardless.
+**Current status: the paper-trading loop (`scripts/paper_trading_loop.py`) is built, tested, and verified against the real Alpaca paper account — real money not yet approved, see [docs/go_live_review.md](go_live_review.md) for the current NO-GO and why.** The model behind it (`docs/model_card.md`) has not shown a demonstrated edge across two independent attempts, so treat any run of this loop as building the operational paper-trading track record and proving the plumbing — not as validating a strategy.
+
+## The paper-trading loop
+
+`scripts/paper_trading_loop.py` runs **one iteration** and exits — it does not loop or sleep internally. Each iteration:
+
+1. Checks the kill switch and Alpaca's market clock; no-ops immediately (cheap, no wasted API calls) if either says don't trade.
+2. Reconciles locally-tracked open positions against Alpaca's actual account state.
+3. Checks tracked positions for stop-loss/take-profit/max-holding exits.
+4. Checks the rest of the universe for new entry signals (via the trained model, same feature code as the backtester) and submits orders through `src/risk/engine.py`'s sizing/PDT/circuit-breaker checks.
+5. Persists risk-engine and open-position state to `data/risk_state.json` / `data/open_positions_state.json` so the next invocation (a fresh process) picks up where this one left off.
+
+**Data feed note:** live bars come from Alpaca's free real-time IEX feed (~2.5% of volume), not the SIP feed (~100%) training/backtesting use — a documented mismatch, accepted because the model doesn't show an edge on either feed yet. See `src/execution/loop.py`'s docstring.
+
+To actually accumulate a multi-week track record, this script needs to run on a schedule (e.g. every 5 minutes during market hours) via cron/launchd or an equivalent scheduler — it is not scheduled to run automatically by default. Manually:
+
+```bash
+.venv/bin/python scripts/paper_trading_loop.py
+```
 
 ## What to check on a normal day
 
