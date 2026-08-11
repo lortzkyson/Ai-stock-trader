@@ -1,6 +1,6 @@
 # Runbook
 
-**Current status: the paper-trading loop (`scripts/paper_trading_loop.py`) is built, tested, and verified against the real Alpaca paper account — real money not yet approved, see [docs/go_live_review.md](go_live_review.md) for the current NO-GO and why.** The model behind it (`docs/model_card.md`) has not shown a demonstrated edge across two independent attempts, so treat any run of this loop as building the operational paper-trading track record and proving the plumbing — not as validating a strategy.
+**Current status: the paper-trading loop (`scripts/paper_trading_loop.py`) is built, tested, and verified against the real Alpaca paper account — real money not yet approved, see [docs/go_live_review.md](go_live_review.md) for the current NO-GO and why.** The model behind it (`docs/model_card.md`) has not shown a demonstrated edge across three independent attempts (see `docs/go_live_review.md` §2), so treat any run of this loop as building the operational paper-trading track record and proving the plumbing — not as validating a strategy. **This loop is live and running real (paper) trades right now** — it entered 9 positions on its first real run during this session; that's expected, not a bug, given the entry threshold logic, but a reminder that "running" and "validated" are different things here.
 
 ## The paper-trading loop
 
@@ -14,17 +14,28 @@
 
 **Data feed note:** live bars come from Alpaca's free real-time IEX feed (~2.5% of volume), not the SIP feed (~100%) training/backtesting use — a documented mismatch, accepted because the model doesn't show an edge on either feed yet. See `src/execution/loop.py`'s docstring.
 
-**A crontab entry is installed** on this machine (`crontab -l` to view it) running the loop every 5 minutes, Mon-Fri 9am-5pm local — a deliberately wide window; the script's own market-clock check no-ops harmlessly outside actual trading hours, so the buffer costs nothing. To run one iteration manually instead:
+**A `launchd` user agent is installed** on this machine, running the loop every 5 minutes, all day, every day — a deliberately wide schedule; the script's own market-clock check no-ops harmlessly (one cheap API call) outside actual trading hours, so there's no need to restrict it to a calendar window. To run one iteration manually instead:
 
 ```bash
 .venv/bin/python scripts/paper_trading_loop.py
 ```
 
-**Two practical things worth knowing about the cron schedule:**
-- **It only fires while this Mac is awake.** Cron does not wake a sleeping machine or run anything while it's off — if you want a real, uninterrupted multi-week track record, keep the machine awake (or plugged in with sleep disabled) during market hours, or the record will just have gaps for however long it was asleep.
-- **macOS sometimes requires granting `cron`/Terminal "Full Disk Access"** (System Settings → Privacy & Security) before scheduled jobs can actually read/write files — if `data/cron.log` and `data/execution_log.jsonl` aren't updating during market hours, check that first.
+**Why `launchd` and not `cron`:** `cron` was tried first and technically fired on schedule, but every run failed with a DNS resolution error (`Failed to resolve 'paper-api.alpaca.markets'`) — `cron`'s minimal execution environment on macOS doesn't reliably inherit normal network/DNS configuration. `launchd` user agents run inside the actual user session and don't have this problem; switched after confirming the cron failure in `data/cron.log`.
 
-Check `data/cron.log` for stdout/stderr from each run (should normally be empty — the script logs structured events to `data/execution_log.jsonl`, not stdout) and `crontab -l` / `crontab -r` to view or remove the schedule.
+Managing the schedule:
+```bash
+# view status
+launchctl print gui/501/com.kysonlortz.ai-stock-trader.paper-loop
+# run one iteration immediately, outside the normal 5-minute cadence
+launchctl kickstart -k gui/501/com.kysonlortz.ai-stock-trader.paper-loop
+# stop it entirely
+launchctl bootout gui/501/com.kysonlortz.ai-stock-trader.paper-loop
+```
+The plist lives at `~/Library/LaunchAgents/com.kysonlortz.ai-stock-trader.paper-loop.plist`.
+
+**One practical thing worth knowing:** it only fires while this Mac is awake. `launchd` does not wake a sleeping machine — if you want a real, uninterrupted multi-week track record, keep the machine awake (or plugged in with sleep disabled) during market hours, or the record will just have gaps for however long it was asleep. A missed run isn't harmful — the next successful run fetches the full session-to-date from Alpaca's servers regardless of any local gap.
+
+Check `data/cron.log` for stdout/stderr from each run (should normally be empty — the script logs structured events to `data/execution_log.jsonl`, not stdout; the log file kept its old name from the cron era).
 
 ## What to check on a normal day
 
