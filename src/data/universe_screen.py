@@ -21,6 +21,7 @@ effect.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, cast
@@ -33,6 +34,49 @@ from alpaca.trading.requests import GetAssetsRequest
 from data.daily_bars import fetch_daily_bars
 
 MAJOR_STOCK_EXCHANGES = ("AssetExchange.NYSE", "AssetExchange.NASDAQ")
+
+# Excluding ARCA (predominantly ETFs) is NOT sufficient — plenty of ETFs list on
+# NYSE/NASDAQ. Alpaca's Asset model has no security-type field and its
+# `attributes` list doesn't distinguish funds from operating companies, so this
+# falls back to name matching. Leaving ETFs in is not cosmetic: leveraged
+# single-stock ETFs (e.g. AAPU, a 2x AAPL fund) mechanically post extreme
+# trailing returns and would dominate a top-N momentum ranking, turning the
+# strategy into "buy whatever was most leveraged into the last rally".
+#
+# Matching is exclusion-based, not inclusion-based: the "Common Stock" suffix is
+# a NASDAQ naming convention, so requiring it would drop most NYSE listings.
+#
+# Deliberately NOT matching the bare word "Trust" — that would discard REITs
+# (Digital Realty Trust, Essex Property Trust, Federal Realty), which are
+# legitimate common equity. Real ETFs carrying "Trust" are caught by issuer name
+# instead (ProShares Trust, WisdomTree Trust, First Trust).
+_FUND_HARD_MARKERS = r"\b(ETF|ETN|ETP|Fund)\b"
+_FUND_ISSUERS = (
+    r"(iShares|ProShares|Direxion|SPDR|Invesco|Vanguard|Xtrackers|WisdomTree|VanEck"
+    r"|Global X|First Trust|Amplify|Roundhill|YieldMax|Defiance|GraniteShares|Simplify"
+    r"|Innovator|Pacer|Tidal|T-Rex|Tradr|Grayscale|Bitwise|Franklin|Schwab Strategic"
+    r"|JPMorgan Exchange|Goldman Sachs ETF|Fidelity Covington|Dimensional|Janus Henderson"
+    r"|PIMCO|Alpha Architect|REX Shares|Volatility Shares|Leverage Shares)"
+)
+_FUND_STRUCTURE = (
+    r"(Index Fund|Bull [0-9]X|Bear [0-9]X|Ultra(Short|Pro)?\b|[0-9]X Shares"
+    r"|Daily .* Shares|Exchange[- ]Traded)"
+)
+FUND_NAME_PATTERN = re.compile(
+    f"{_FUND_HARD_MARKERS}|{_FUND_ISSUERS}|{_FUND_STRUCTURE}", re.IGNORECASE
+)
+
+
+def looks_like_fund(name: str | None) -> bool:
+    """True if an asset's name indicates an ETF/ETN/closed-end fund rather than
+    an operating company.
+
+    Known imperfection: business development companies (BDCs) structured as
+    "... Fund" are excluded too — e.g. Blackstone Secured Lending Fund. That's
+    one name out of ~2,000 in practice, and erring toward exclusion is the safer
+    direction here.
+    """
+    return bool(FUND_NAME_PATTERN.search(name or ""))
 
 
 @dataclass(frozen=True)
@@ -48,11 +92,12 @@ def list_candidate_symbols(
     secret_key: str | None = None,
     exchanges: tuple[str, ...] = MAJOR_STOCK_EXCHANGES,
 ) -> list[str]:
-    """All currently-tradable common stocks on major exchanges.
+    """All currently-tradable common stocks on major exchanges, funds excluded.
 
     ARCA/BATS are excluded because they're predominantly ETFs, and a momentum
     strategy ranking ETFs alongside single stocks is a different (and much more
-    correlated) strategy than the one being tested.
+    correlated) strategy than the one being tested. Name-based fund filtering
+    then removes the ETFs that list on NYSE/NASDAQ — see `looks_like_fund`.
     """
     api_key = api_key or os.environ["ALPACA_API_KEY"]
     secret_key = secret_key or os.environ["ALPACA_SECRET_KEY"]
@@ -63,7 +108,11 @@ def list_candidate_symbols(
             GetAssetsRequest(status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY)
         ),
     )
-    return sorted(a.symbol for a in assets if a.tradable and str(a.exchange) in exchanges)
+    return sorted(
+        a.symbol
+        for a in assets
+        if a.tradable and str(a.exchange) in exchanges and not looks_like_fund(a.name)
+    )
 
 
 def screen_at_date(
