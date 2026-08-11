@@ -14,11 +14,17 @@
 
 **Data feed note:** live bars come from Alpaca's free real-time IEX feed (~2.5% of volume), not the SIP feed (~100%) training/backtesting use — a documented mismatch, accepted because the model doesn't show an edge on either feed yet. See `src/execution/loop.py`'s docstring.
 
-To actually accumulate a multi-week track record, this script needs to run on a schedule (e.g. every 5 minutes during market hours) via cron/launchd or an equivalent scheduler — it is not scheduled to run automatically by default. Manually:
+**A crontab entry is installed** on this machine (`crontab -l` to view it) running the loop every 5 minutes, Mon-Fri 9am-5pm local — a deliberately wide window; the script's own market-clock check no-ops harmlessly outside actual trading hours, so the buffer costs nothing. To run one iteration manually instead:
 
 ```bash
 .venv/bin/python scripts/paper_trading_loop.py
 ```
+
+**Two practical things worth knowing about the cron schedule:**
+- **It only fires while this Mac is awake.** Cron does not wake a sleeping machine or run anything while it's off — if you want a real, uninterrupted multi-week track record, keep the machine awake (or plugged in with sleep disabled) during market hours, or the record will just have gaps for however long it was asleep.
+- **macOS sometimes requires granting `cron`/Terminal "Full Disk Access"** (System Settings → Privacy & Security) before scheduled jobs can actually read/write files — if `data/cron.log` and `data/execution_log.jsonl` aren't updating during market hours, check that first.
+
+Check `data/cron.log` for stdout/stderr from each run (should normally be empty — the script logs structured events to `data/execution_log.jsonl`, not stdout) and `crontab -l` / `crontab -r` to view or remove the schedule.
 
 ## What to check on a normal day
 
