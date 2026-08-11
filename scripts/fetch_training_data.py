@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Pull, clean, and cache the training dataset for Phases 3-5.
 
-Scope is deliberately modest for this initial build (8 liquid symbols, ~8
-months of 1-minute bars ending right before the pinned holdout window) to
-keep training/backtesting runtimes tractable. Widen SYMBOLS/START/END below
-for a larger production run; nothing else needs to change.
+Widened from the initial 8-symbol/~8-month build after Phase 4/5 found no
+edge over a random baseline: full 30-symbol seed universe, ~14 months of
+1-minute bars ending right before the pinned holdout window. Widen further
+via SYMBOLS/START/END below if needed; nothing else needs to change.
 """
 
 from __future__ import annotations
@@ -21,9 +21,10 @@ from data.alpaca_client import AlpacaBarsClient, BarsQuery  # noqa: E402
 from data.holdout import exclude_holdout  # noqa: E402
 from data.pipeline import run_pipeline  # noqa: E402
 from data.quality import check_quality  # noqa: E402
+from data.universe import load_seed_universe  # noqa: E402
 
-SYMBOLS = ["AAPL", "MSFT", "AMZN", "GOOGL", "NVDA", "JPM", "WMT", "XOM"]
-START = date(2025, 9, 1)
+SYMBOLS = load_seed_universe()
+START = date(2025, 3, 1)
 END = date(2026, 4, 30)  # holdout starts 2026-05-01 — see docs/pre-mortem.md
 
 

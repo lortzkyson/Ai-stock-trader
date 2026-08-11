@@ -29,3 +29,30 @@ def test_vwap_dev_is_zero_at_first_bar_of_each_session() -> None:
     first_of_day = ts.dt.date != ts.dt.date.shift(1)
 
     assert (result.loc[first_of_day, "vwap_dev"].abs() < 1e-9).all()
+
+
+def test_minutes_since_open_resets_each_session() -> None:
+    bars = make_clean_bars(["2026-01-05", "2026-01-06"])
+
+    result = add_features(bars)
+    ts = pd.to_datetime(result["timestamp"])
+    first_of_day = ts.dt.date != ts.dt.date.shift(1)
+
+    assert (result.loc[first_of_day, "minutes_since_open"] == 0).all()
+    assert result["minutes_since_open"].max() == 389  # 390-bar session, 0-indexed
+
+
+def test_rsi_is_bounded_zero_to_hundred() -> None:
+    bars = make_clean_bars(["2026-01-05", "2026-01-06"])
+    result = add_features(bars)
+    valid = result["rsi_14"].dropna()
+    assert (valid >= 0).all()
+    assert (valid <= 100).all()
+
+
+def test_range_position_is_bounded_zero_to_one_when_range_is_nonzero() -> None:
+    bars = make_clean_bars(["2026-01-05", "2026-01-06"])
+    result = add_features(bars)
+    valid = result["range_position_20"].dropna()
+    assert (valid >= -1e-9).all()
+    assert (valid <= 1 + 1e-9).all()

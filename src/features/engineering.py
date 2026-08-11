@@ -20,12 +20,45 @@ import pandas as pd
 MOMENTUM_WINDOWS = (5, 15, 30, 60)
 VOLATILITY_WINDOWS = (30, 60)
 RELATIVE_VOLUME_WINDOW = 30
+RSI_WINDOW = 14
+RANGE_POSITION_WINDOW = 20
+SESSION_START = "09:30"
 
 FEATURE_COLUMNS = (
     [f"ret_{w}" for w in MOMENTUM_WINDOWS]
     + [f"vol_{w}" for w in VOLATILITY_WINDOWS]
-    + ["rel_vol_30", "vwap_dev"]
+    + ["rel_vol_30", "vwap_dev", "minutes_since_open", "rsi_14", "range_position_20"]
 )
+
+
+def _minutes_since_open(timestamp_col: pd.Series, session_start: str = SESSION_START) -> pd.Series:
+    """Minutes elapsed since the session open — a deterministic function of the
+    bar's own timestamp (captures open/close intraday effects, no lookahead)."""
+    ts = pd.to_datetime(timestamp_col)
+    hour, minute = (int(x) for x in session_start.split(":"))
+    session_open = ts.dt.normalize() + pd.Timedelta(hours=hour, minutes=minute)
+    return (ts - session_open).dt.total_seconds() / 60.0
+
+
+def _rsi(close: pd.Series, window: int = RSI_WINDOW) -> pd.Series:
+    """Relative Strength Index (simple rolling-mean variant, not Wilder's smoothing)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(window).mean()
+    avg_loss = loss.rolling(window).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def _range_position(
+    close: pd.Series, high: pd.Series, low: pd.Series, window: int = RANGE_POSITION_WINDOW
+) -> pd.Series:
+    """Where price sits in its recent high/low range: 0 = at the low, 1 = at the high."""
+    rolling_low = low.rolling(window).min()
+    rolling_high = high.rolling(window).max()
+    span = (rolling_high - rolling_low).replace(0, np.nan)
+    return (close - rolling_low) / span
 
 
 def add_features(bars: pd.DataFrame) -> pd.DataFrame:
@@ -47,6 +80,10 @@ def add_features(bars: pd.DataFrame) -> pd.DataFrame:
     cum_volume = df["volume"].groupby(session_date).cumsum()
     session_vwap = cum_dollar_volume / cum_volume
     df["vwap_dev"] = (close - session_vwap) / session_vwap
+
+    df["minutes_since_open"] = _minutes_since_open(df["timestamp"])
+    df["rsi_14"] = _rsi(close)
+    df["range_position_20"] = _range_position(close, df["high"], df["low"])
 
     return df
 

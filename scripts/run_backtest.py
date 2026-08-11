@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from backtest.engine import run_backtest  # noqa: E402
 from backtest.fills import FillConfig  # noqa: E402
 from backtest.metrics import compute_backtest_metrics  # noqa: E402
+from data.universe import load_seed_universe  # noqa: E402
 from features.labeling import TripleBarrierConfig  # noqa: E402
 from models.dataset import build_dataset  # noqa: E402
 from models.experiment_log import append_run  # noqa: E402
@@ -27,8 +28,8 @@ from models.validation import generate_walk_forward_folds, split_fold  # noqa: E
 from risk.engine import RiskConfig, RiskEngine  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SYMBOLS = ["AAPL", "MSFT", "AMZN", "GOOGL", "NVDA", "JPM", "WMT", "XOM"]
-START = date(2025, 9, 1)
+SYMBOLS = load_seed_universe()
+START = date(2025, 3, 1)
 END = date(2026, 4, 30)
 BARRIER_CONFIG = TripleBarrierConfig()
 N_FOLDS = 5
@@ -113,6 +114,9 @@ def main() -> int:
     metrics = compute_backtest_metrics(result.trades, result.daily_equity)
     print("Backtest metrics:", metrics)
 
+    significance = _significance_check(result.trades)
+    print("Significance check:", significance)
+
     in_sample_agg = _average_metrics(in_sample_metrics_per_fold)
     out_sample_agg = _average_metrics(out_sample_metrics_per_fold)
     divergence_flag = _check_divergence(in_sample_agg, out_sample_agg)
@@ -148,7 +152,9 @@ def main() -> int:
     )
     print("Appended run to experiment_log.csv")
 
-    write_report(dataset, result, metrics, in_sample_agg, out_sample_agg, divergence_flag)
+    write_report(
+        dataset, result, metrics, in_sample_agg, out_sample_agg, divergence_flag, significance
+    )
     print(f"Wrote report to {REPORT_PATH}")
 
     return 0
@@ -170,6 +176,40 @@ def _average_metrics(metrics_list: list[dict]) -> dict:
     return out
 
 
+def _significance_check(trades: pd.DataFrame) -> dict:
+    """Is the headline result distinguishable from noise, and is it broad-based?
+
+    A backtest can look profitable purely by chance with a small trade count,
+    or look profitable in aggregate while actually being one or two lucky
+    symbols masking a loss everywhere else — neither is a demonstrated edge.
+    Both get checked and reported here rather than left for the headline
+    Sharpe/return numbers to imply more confidence than the sample supports.
+    """
+    if trades.empty or len(trades) < 2:
+        return {"n_trades": len(trades), "t_stat": float("nan"), "p_value": float("nan"),
+                "is_significant": False, "top_symbol_share_of_profit": float("nan")}
+
+    from scipy import stats
+
+    t_stat, p_value = stats.ttest_1samp(trades["return_pct"], 0)
+
+    pnl_by_symbol = trades.groupby("symbol")["pnl"].sum().sort_values(ascending=False)
+    total_positive_pnl = pnl_by_symbol[pnl_by_symbol > 0].sum()
+    top_symbol_share = (
+        float(pnl_by_symbol.iloc[0] / total_positive_pnl) if total_positive_pnl > 0 else float("nan")
+    )
+
+    return {
+        "n_trades": len(trades),
+        "t_stat": float(t_stat),
+        "p_value": float(p_value),
+        "is_significant": bool(p_value < 0.05),
+        "top_symbol_share_of_profit": top_symbol_share,
+        "n_symbols_net_positive": int((pnl_by_symbol > 0).sum()),
+        "n_symbols_total": int(len(pnl_by_symbol)),
+    }
+
+
 def _check_divergence(in_sample: dict, out_sample: dict) -> str | None:
     in_exp, out_exp = in_sample["expectancy"], out_sample["expectancy"]
     if in_exp != in_exp or out_exp != out_exp:
@@ -184,12 +224,14 @@ def _check_divergence(in_sample: dict, out_sample: dict) -> str | None:
     return None
 
 
-def write_report(dataset, result, metrics, in_sample_agg, out_sample_agg, divergence_flag) -> None:
+def write_report(
+    dataset, result, metrics, in_sample_agg, out_sample_agg, divergence_flag, significance
+) -> None:
     lines = [f"# Backtest Report — Phase 5 ({datetime.now(timezone.utc):%Y-%m-%d})\n"]
     lines.append(
-        "Event-driven backtest replaying Phase 4's model signals against real historical bars "
-        "for the same 8 symbols, using the exact out-of-sample walk-forward test periods from "
-        "Phase 4 (no re-tuning here) — see `docs/model_card.md` for the model itself.\n"
+        f"Event-driven backtest replaying Phase 4's model signals against real historical bars "
+        f"for the same {len(SYMBOLS)} symbols, using the exact out-of-sample walk-forward test "
+        f"periods from Phase 4 (no re-tuning here) — see `docs/model_card.md` for the model itself.\n"
     )
 
     lines.append("## Configuration\n")
@@ -208,6 +250,44 @@ def write_report(dataset, result, metrics, in_sample_agg, out_sample_agg, diverg
     for k in ["n_trades", "win_rate", "expectancy", "profit_factor", "sharpe", "sortino",
               "max_drawdown", "avg_trade_duration_bars", "total_return"]:
         lines.append(f"| {k} | {fmt(metrics[k]) if isinstance(metrics[k], float) else metrics[k]} |")
+    lines.append("")
+
+    lines.append("## Statistical significance and concentration\n")
+    lines.append(
+        "A backtest can look profitable purely by chance with a small trade count, or look "
+        "profitable in aggregate while really being one or two lucky symbols masking a loss "
+        "everywhere else. Both are checked here before the headline numbers above get any "
+        "credit as a demonstrated edge.\n"
+    )
+    if significance["n_trades"] < 2:
+        lines.append("Too few trades to test.\n")
+    else:
+        lines.append(f"- One-sample t-test on per-trade return vs. zero: "
+                      f"t={significance['t_stat']:.3f}, p={significance['p_value']:.3f}")
+        sig_verdict = (
+            "statistically significant at p<0.05"
+            if significance["is_significant"]
+            else "**not statistically significant** — consistent with pure chance"
+        )
+        lines.append(f"  -> {sig_verdict}")
+        lines.append(
+            f"- Profit concentration: the single best-performing symbol accounts for "
+            f"{significance['top_symbol_share_of_profit']:.0%} of total gross positive P&L"
+        )
+        lines.append(
+            f"- {significance['n_symbols_net_positive']} of "
+            f"{significance['n_symbols_total']} traded symbols were net positive"
+        )
+        if not significance["is_significant"]:
+            lines.append(
+                "\n**Verdict: this result should not be read as a demonstrated edge.** With "
+                f"only {significance['n_trades']} real (non-overlapping) trades and a p-value "
+                "well above 0.05, the positive headline numbers above are within the range "
+                "pure noise would produce. This is consistent with Phase 4's much larger "
+                "signal-level sample (1.48M predictions), which showed no edge over a random "
+                "baseline — that larger, more reliable sample should be trusted over this "
+                "smaller number of actual position-limited trades."
+            )
     lines.append("")
 
     if not result.trades.empty:
@@ -237,10 +317,7 @@ def write_report(dataset, result, metrics, in_sample_agg, out_sample_agg, diverg
         )
 
     lines.append("## Known limitations\n")
-    lines.append(
-        "- Same universe/date-range scope-down as Phase 4 (8 symbols, ~8 months) — see "
-        "`docs/model_card.md`."
-    )
+    lines.append(f"- Same universe/date-range as Phase 4 ({len(SYMBOLS)} symbols, {START} to {END}) — see `docs/model_card.md`.")
     lines.append(
         "- Exits (stop-loss/take-profit/max-holding) fill as market orders; only entries model "
         "the market-vs-limit distinction (`src/backtest/fills.py`)."

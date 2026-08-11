@@ -18,15 +18,17 @@ This document is analysis only. No live-order-submission code exists anywhere in
 
 One thing worth internalizing now, before that run starts: **Alpaca's paper fills tend to be more favorable than real ones** — less realistic slippage and rejection than a live account would see. Treat whatever paper results eventually come in as an optimistic upper bound, not a live-performance guarantee, and size any initial real-money ramp-up (§4) conservatively below what paper alone would suggest.
 
-## 2. The model doesn't show a clear edge — this is the bigger blocker
+## 2. The model doesn't show a clear edge — this is the bigger blocker, and it's now been checked twice
 
-Independent of the missing paper track record, the model and backtest results already on record argue against going live:
+**Round 1** (8 symbols, ~8 months, 8 base features): **[docs/model_card.md](model_card.md)**'s first pass found aggregate out-of-sample expectancy statistically indistinguishable from a random-entry baseline at the same trade frequency. **[reports/backtest_2026-08-10.md](../reports/backtest_2026-08-10.md)** then found the realistic backtest turned that already-thin signal net negative (expectancy -0.04%/trade, Sharpe -0.30) and flagged a real in-sample/out-of-sample divergence (overfitting signature).
 
-- **[docs/model_card.md](model_card.md)**: aggregate out-of-sample expectancy (0.13%/trade) is statistically indistinguishable from a random-entry baseline at the same trade frequency (0.12%/trade). The pre-mortem's own baseline-comparison guard exists exactly to catch this, and the honest read is that this model isn't demonstrated to add value.
-- **[reports/backtest_2026-08-10.md](../reports/backtest_2026-08-10.md)**: once realistic fills, Alpaca's actual fee schedule, and slippage are applied on top of that already-thin signal, the result is net negative — expectancy -0.04%/trade, Sharpe -0.30, total return -1.3% over the ~8-month out-of-sample period.
-- That same report also flags a real in-sample/out-of-sample divergence (win rate 44% train vs. 35% test; expectancy 0.46%/trade train vs. 0.13%/trade test) — a classic overfitting signature.
+**Round 2** (widened to 30 symbols, ~14 months, +3 features — minutes-since-open, RSI-14, range-position): the response to Round 1 wasn't to keep tweaking the same small run, it was one considered, larger attempt. It didn't help:
+- Signal-level walk-forward (1.48M out-of-sample predictions): model expectancy (0.082%/trade) came in essentially tied with — marginally *below* — the random baseline (0.088%/trade), with a visible downward trend across folds (0.21% → 0.15% → 0.06% → 0.09% → 0.01%).
+- The realistic backtest (**[reports/backtest_2026-08-11.md](../reports/backtest_2026-08-11.md)**) initially looked *better* this time — positive expectancy, Sharpe 1.12, +7.7% return — which was a genuine reversal worth taking seriously rather than accepting at face value. A one-sample t-test on the 310 real trades came back **p=0.33** (not remotely significant), and the profit was concentrated: one symbol accounted for 29% of all gross positive P&L, and fewer than half the traded symbols (14 of 29) were net positive. That's the signature of a small, noisy sample producing a lucky-looking headline number, not a demonstrated edge — and it's consistent with the much larger 1.48M-prediction sample showing no edge at all.
 
-None of this is a reason to distrust the pipeline — it's the pipeline doing exactly what Phase 0's pre-mortem designed it to do: catch a weak-or-absent edge before money is at risk, rather than after. But it does mean going live now would be putting real capital behind a signal that hasn't been shown to beat chance.
+Two independent, differently-scoped attempts (different universe size, different history length, different feature set) both concluded the same thing: **this signal, from basic price/volume-derived features at 1-minute resolution on large-cap equities, isn't demonstrated to beat chance.** That's a more informative and more trustworthy result than either attempt alone — a real edge should have shown up more clearly with more data and more features, not stayed flat or gotten murkier.
+
+None of this is a reason to distrust the pipeline — it's doing exactly what Phase 0's pre-mortem designed it to do, including catching a misleadingly good-looking headline number (Round 2's backtest) before it could be mistaken for validation. Going live now would mean putting real capital behind a signal that has been checked twice and hasn't beaten chance either time.
 
 ## 3. Circuit breakers
 
@@ -66,7 +68,7 @@ This is offered for when the blockers above are actually resolved (a demonstrate
 |---|---|
 | Multi-week paper track record | **Not done** — no persistent run has happened |
 | Paper-vs-backtest divergence check | **Blocked** on the above |
-| Model shows a demonstrated edge | **No** — indistinguishable from random baseline (Phase 4), net negative after real costs (Phase 5) |
+| Model shows a demonstrated edge | **No, checked twice** — indistinguishable from random baseline in both an 8-symbol and a 30-symbol run; a good-looking Round 2 backtest number turned out to be statistically insignificant noise (p=0.33) |
 | Circuit breakers verified | Unit-tested and correct; **not yet verified live** |
 | Alpaca vs. Robinhood | Alpaca recommended if/when going live; decision is yours |
 | Ramp-up plan | Drafted, contingent on the above |

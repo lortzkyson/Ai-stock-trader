@@ -8,7 +8,6 @@ Run scripts/fetch_training_data.py first to populate the cache.
 
 from __future__ import annotations
 
-import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -20,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from data.cache import read_cached  # noqa: E402
 from data.holdout import exclude_holdout  # noqa: E402
 from data.quality import check_quality, clean_bars  # noqa: E402
+from data.universe import load_seed_universe  # noqa: E402
 from features.engineering import FEATURE_COLUMNS  # noqa: E402
 from features.labeling import TripleBarrierConfig, report_class_balance  # noqa: E402
 from models.baseline import buy_and_hold_baseline, random_entry_baseline  # noqa: E402
@@ -33,8 +33,8 @@ from models.train import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SYMBOLS = ["AAPL", "MSFT", "AMZN", "GOOGL", "NVDA", "JPM", "WMT", "XOM"]
-START = date(2025, 9, 1)
+SYMBOLS = load_seed_universe()
+START = date(2025, 3, 1)
 END = date(2026, 4, 30)
 BARRIER_CONFIG = TripleBarrierConfig()  # defaults: 2% target, 1% stop, 3-session horizon
 N_FOLDS = 5
@@ -235,10 +235,11 @@ def write_model_card(dataset, balance, fold_metrics, agg, random_baseline, bh, r
 
     lines.append("## Known limitations\n")
     lines.append(
-        "- Universe and date range are deliberately scoped down for this initial build "
-        f"({len(SYMBOLS)} symbols, ~8 months) to keep training/backtesting runtimes tractable "
-        "on this machine — widen `SYMBOLS`/`START`/`END` in `scripts/fetch_training_data.py` and "
-        "`scripts/train_model.py` for a larger run; nothing else needs to change."
+        f"- Universe/date range ({len(SYMBOLS)} symbols, {START} to {END}) is still a scope-down "
+        "from the full ~10-year history Alpaca actually has available — widen `SYMBOLS`/`START`/`END` "
+        "in `scripts/fetch_training_data.py` and `scripts/train_model.py` further if needed, but "
+        "note that widening from 8 symbols/~8 months to 30 symbols/~14 months (this run) did not "
+        "produce a clearer edge over the random baseline — see the Key Finding above."
     )
     lines.append(
         "- Regime split is a median realized-volatility split by day, a proxy for "
