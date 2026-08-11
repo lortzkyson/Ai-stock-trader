@@ -22,7 +22,39 @@ Decision made: pursue a **documented anomaly with a structural reason to persist
 - **Daily bars: available and good.** Alpaca gives ~10.5 years (2016-01 → present) of SIP-quality adjusted daily bars, free. Far more statistical power than the 14 months of minute bars used so far.
 - **Earnings data: NOT available from Alpaca.** Its corporate-actions endpoint covers splits, dividends, mergers, spinoffs, name changes — no earnings dates and no consensus estimates.
 
-### STOP — fix this before trusting any momentum result
+## RESULT: momentum ran. It does not show a demonstrated edge.
+
+Full numbers in `reports/momentum_2026-08-11_213446.md`. Headline looks spectacular and is misleading:
+
+| | total return | CAGR | vol | Sharpe |
+|---|---|---|---|---|
+| Momentum (20 names, monthly) | **+2,140%** | 35.2% | 40.4% | 0.95 |
+| SPY buy-and-hold | +315% | 14.8% | 17.6% | 0.87 |
+| **SPY levered 2.29x to match vol** | **+1,500%** | 30.9% | 40.4% | 0.87 |
+
+**Finding 1 — the outperformance is risk, not skill.** The strategy runs at 2.29x SPY's volatility. Simply leveraging SPY to the same volatility captures +1,500% of the +2,140%. Excess over the *risk-matched* benchmark: **t=0.28, p=0.78** — no detectable edge at all. Against unlevered SPY it looked significant (p=0.026); that comparison was just measuring the decision to take more risk. Sharpe 0.95 vs 0.87 was the tell all along.
+
+**Finding 2 — survivorship bias is likely fatal here, not marginal.** The most-held names are exactly the cohort that delists: VKTX/MDGL/ARWR/AXSM (speculative biotech), RIOT/MARA (crypto miners), BTU/AMR (coal), CVNA. The universe contains only companies still listed in 2026, so the ones from this cohort that went to zero are invisible. Sensitivity to an assumed annual delisting rate among holdings:
+
+| annual delist rate | CAGR | p vs SPY |
+|---|---|---|
+| 0% (as backtested) | 35.4% | 0.025 ✓ |
+| 2% | 32.8% | 0.042 ✓ |
+| **5%** | 28.8% | **0.084 ✗** |
+| 10% | 22.5% | 0.226 ✗ |
+| 15% | 16.5% | 0.494 ✗ |
+
+Significance evaporates by 5%/yr. For speculative biotech and crypto miners over 2016-2026, the real rate was very likely higher than that.
+
+**What did survive scrutiny** (worth noting, not dismissing): it beat SPY in 9 of 10 years including down years (2018 +5.0% vs -5.0%; 2022 -4.6% vs -18.2%), held 432 distinct names so it isn't one lucky pick, and the monthly-frequency t-test matched the daily one (p=0.025 vs 0.026), so the significance wasn't an artifact of overlapping observations. The Sharpe edge is positive — just small and not statistically distinguishable from zero.
+
+**Verdict: NO-GO on this as a live strategy.** A 2.29x-beta portfolio of speculative small caps, measured in a survivorship-biased universe, whose risk-adjusted excess is indistinguishable from zero.
+
+**If continuing down this path**, the highest-value next step is fixing survivorship bias — sourcing a point-in-time constituent list (delisted price history *is* available from Alpaca; only the membership list is missing). Without that, no equity backtest here can be trusted, and that limitation now has a measured magnitude rather than a hand-wave.
+
+---
+
+### RESOLVED — ETF contamination (fixed 2026-08-11)
 
 **The screened universe contains ETFs, including leveraged single-stock ETFs.** Filtering to NYSE+NASDAQ (to exclude ARCA, which is predominantly ETFs) was not sufficient — plenty of ETFs list on NASDAQ/NYSE. Confirmed in the cached universe: `AAXJ` (iShares Asia ex-Japan) and `AAPU` (a 2x leveraged AAPL ETF), among 2,204 symbols.
 

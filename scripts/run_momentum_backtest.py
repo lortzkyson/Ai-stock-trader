@@ -30,6 +30,7 @@ from backtest.portfolio_metrics import (  # noqa: E402
     compare_to_benchmark,
     compute_portfolio_metrics,
     equal_weight_buy_and_hold,
+    volatility_matched_benchmark,
 )
 from data.daily_bars import (  # noqa: E402
     check_daily_quality,
@@ -140,19 +141,28 @@ def main() -> int:
     spy_equity = benchmark_series(all_close, BENCHMARK_SYMBOL, STARTING_EQUITY)
     universe_equity = equal_weight_buy_and_hold(all_close, universe, STARTING_EQUITY)
 
+    levered_spy, leverage = volatility_matched_benchmark(
+        result.daily_equity, spy_equity, STARTING_EQUITY
+    )
+
     spy_metrics = compute_portfolio_metrics(spy_equity)
     universe_metrics = compute_portfolio_metrics(universe_equity)
+    levered_metrics = compute_portfolio_metrics(levered_spy)
     vs_spy = compare_to_benchmark(result.daily_equity, spy_equity)
     vs_universe = compare_to_benchmark(result.daily_equity, universe_equity)
+    vs_levered = compare_to_benchmark(result.daily_equity, levered_spy)
 
     print(f"SPY buy-and-hold: {spy_metrics}")
     print(f"Equal-weight universe buy-and-hold: {universe_metrics}")
+    print(f"Vol-matched SPY ({leverage:.2f}x): {levered_metrics}")
     print(f"vs SPY: {vs_spy}")
     print(f"vs universe: {vs_universe}")
+    print(f"vs VOL-MATCHED SPY (the benchmark that matters): {vs_levered}")
 
     write_report(
         universe, panel, targets, result, strategy_metrics,
-        spy_metrics, universe_metrics, vs_spy, vs_universe,
+        spy_metrics, universe_metrics, levered_metrics,
+        vs_spy, vs_universe, vs_levered, leverage,
         momentum_config, end, args.include_holdout,
     )
     return 0
@@ -160,7 +170,8 @@ def main() -> int:
 
 def write_report(
     universe, panel, targets, result, strategy_metrics,
-    spy_metrics, universe_metrics, vs_spy, vs_universe,
+    spy_metrics, universe_metrics, levered_metrics,
+    vs_spy, vs_universe, vs_levered, leverage,
     momentum_config, end, include_holdout,
 ) -> None:
     stamp = datetime.now(timezone.utc)
@@ -199,6 +210,7 @@ def write_report(
         ("**Momentum strategy**", strategy_metrics),
         ("SPY buy-and-hold", spy_metrics),
         ("Equal-weight universe buy-and-hold", universe_metrics),
+        (f"SPY levered to match strategy vol ({leverage:.2f}x)", levered_metrics),
     ]:
         lines.append(
             f"| {label} | {fmt(m['total_return'])} | {fmt(m['cagr'])} "
@@ -215,13 +227,25 @@ def write_report(
     )
     lines.append("| benchmark | excess total return | t-stat | p-value | significant? |")
     lines.append("|---|---|---|---|---|")
-    for label, c in [("SPY", vs_spy), ("Equal-weight universe", vs_universe)]:
+    for label, c in [
+        ("SPY", vs_spy),
+        ("Equal-weight universe", vs_universe),
+        (f"**SPY vol-matched ({leverage:.2f}x)**", vs_levered),
+    ]:
         verdict = "**yes**" if c["is_significant"] else "no"
         lines.append(
             f"| {label} | {fmt(c['excess_total_return'])} | {fmt(c['t_stat'])} "
             f"| {fmt(c['p_value'])} | {verdict} |"
         )
     lines.append("")
+    lines.append(
+        f"**The vol-matched row is the one that counts.** This strategy runs at "
+        f"{fmt(strategy_metrics['annual_volatility'])} annualized volatility versus SPY's "
+        f"{fmt(spy_metrics['annual_volatility'])} — it takes {leverage:.2f}x the risk. A "
+        "portfolio taking that much more risk should earn proportionally more *with no skill "
+        "whatsoever*, so beating unlevered SPY is not evidence of anything. Only the excess "
+        "over a risk-matched benchmark is a candidate for edge.\n"
+    )
 
     if not result.turnover.empty:
         lines.append(f"Average monthly turnover: {result.turnover.mean():.1%}\n")

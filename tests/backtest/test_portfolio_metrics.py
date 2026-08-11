@@ -9,6 +9,7 @@ from backtest.portfolio_metrics import (
     compare_to_benchmark,
     compute_portfolio_metrics,
     equal_weight_buy_and_hold,
+    volatility_matched_benchmark,
 )
 
 
@@ -81,6 +82,52 @@ def test_compare_to_benchmark_detects_a_real_difference() -> None:
 
     assert result["excess_total_return"] > 0
     assert result["is_significant"]
+
+
+def test_volatility_matched_benchmark_recovers_the_leverage_factor() -> None:
+    rng = np.random.default_rng(5)
+    bench_returns = rng.normal(0.0003, 0.01, 1000)
+    # Strategy is exactly 2x the benchmark's returns -> 2x its volatility.
+    strat_returns = bench_returns * 2
+
+    bench = _series(list(10_000 * np.cumprod(1 + bench_returns)))
+    strat = _series(list(10_000 * np.cumprod(1 + strat_returns)))
+
+    levered, leverage = volatility_matched_benchmark(strat, bench)
+
+    assert leverage == pytest.approx(2.0, rel=0.02)
+    assert len(levered) > 0
+
+
+def test_pure_leverage_shows_no_edge_against_vol_matched_benchmark() -> None:
+    """The whole point of this benchmark: a strategy that is *only* levered
+    beta must show no significant excess once volatility is matched.
+
+    Drift is set well above the noise here on purpose. At low drift, leverage
+    can actually *reduce* total return via volatility drag (variance grows with
+    the square of leverage while expected return grows linearly) — true, but it
+    muddies what this test is checking.
+    """
+    rng = np.random.default_rng(7)
+    bench_returns = rng.normal(0.0008, 0.01, 1500)
+    strat_returns = bench_returns * 2.5  # leverage alone, zero skill
+
+    bench = _series(list(10_000 * np.cumprod(1 + bench_returns)))
+    strat = _series(list(10_000 * np.cumprod(1 + strat_returns)))
+
+    # Against the raw benchmark the levered strategy looks far better...
+    raw = compare_to_benchmark(strat, bench)
+    assert raw["excess_total_return"] > 0
+
+    # ...but against a vol-matched benchmark the apparent edge disappears.
+    levered, _ = volatility_matched_benchmark(strat, bench)
+    matched = compare_to_benchmark(strat, levered)
+    assert not matched["is_significant"]
+
+
+def test_volatility_matched_benchmark_handles_short_series() -> None:
+    _, leverage = volatility_matched_benchmark(_series([1.0, 2.0]), _series([1.0, 2.0]))
+    assert np.isnan(leverage)
 
 
 def test_compare_to_benchmark_handles_empty_overlap() -> None:

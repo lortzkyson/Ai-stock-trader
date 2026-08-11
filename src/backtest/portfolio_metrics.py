@@ -97,6 +97,38 @@ def benchmark_series(
     return starting_equity * series / series.iloc[0]
 
 
+def volatility_matched_benchmark(
+    strategy_equity: pd.Series, benchmark_equity: pd.Series, starting_equity: float = 10_000.0
+) -> tuple[pd.Series, float]:
+    """Benchmark scaled to the strategy's realized volatility.
+
+    This is the benchmark that actually matters, and omitting it is how
+    high-volatility strategies get mistaken for skillful ones. A portfolio with
+    2x the market's volatility should earn roughly 2x the market's return
+    *without any skill at all* — so beating an unlevered benchmark proves
+    nothing on its own. Comparing against a benchmark levered to the same
+    volatility isolates whatever return is left over after accounting for
+    risk-taking.
+
+    Returns (levered equity curve, leverage factor). Borrowing costs are not
+    modeled, which flatters the *benchmark* — the conservative direction when
+    the strategy is the thing under scrutiny.
+    """
+    aligned = pd.DataFrame({"s": strategy_equity, "b": benchmark_equity}).dropna()
+    if len(aligned) < 3:
+        return pd.Series(dtype=float), float("nan")
+
+    returns = aligned.pct_change().dropna()
+    strat_vol, bench_vol = returns["s"].std(), returns["b"].std()
+    if bench_vol == 0:
+        return pd.Series(dtype=float), float("nan")
+
+    leverage = float(strat_vol / bench_vol)
+    levered_returns = returns["b"] * leverage
+    equity = starting_equity * (1 + levered_returns).cumprod()
+    return equity, leverage
+
+
 def compare_to_benchmark(strategy_equity: pd.Series, benchmark_equity: pd.Series) -> dict:
     """Excess return and a paired t-test on daily return differences.
 
