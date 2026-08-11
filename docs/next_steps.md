@@ -22,6 +22,17 @@ Decision made: pursue a **documented anomaly with a structural reason to persist
 - **Daily bars: available and good.** Alpaca gives ~10.5 years (2016-01 → present) of SIP-quality adjusted daily bars, free. Far more statistical power than the 14 months of minute bars used so far.
 - **Earnings data: NOT available from Alpaca.** Its corporate-actions endpoint covers splits, dividends, mergers, spinoffs, name changes — no earnings dates and no consensus estimates.
 
+### STOP — fix this before trusting any momentum result
+
+**The screened universe contains ETFs, including leveraged single-stock ETFs.** Filtering to NYSE+NASDAQ (to exclude ARCA, which is predominantly ETFs) was not sufficient — plenty of ETFs list on NASDAQ/NYSE. Confirmed in the cached universe: `AAXJ` (iShares Asia ex-Japan) and `AAPU` (a 2x leveraged AAPL ETF), among 2,204 symbols.
+
+This is not cosmetic. Leveraged ETFs mechanically exhibit extreme trailing returns, so a top-20 momentum ranking would likely fill up with them — turning a "buy strong stocks" strategy into "buy whatever was most leveraged into the last rally," which has completely different risk characteristics and well-documented volatility decay. **Any backtest run before this is fixed is measuring the wrong strategy.**
+
+Fix options, in order of preference:
+1. Check whether Alpaca's `Asset` model exposes anything usable to distinguish ETFs from common stock (worth inspecting `Asset` fields and `attributes` — not yet checked).
+2. Failing that, filter by name pattern (ETF issuers: iShares, ProShares, Direxion, SPDR, Invesco, Vanguard, etc.) — crude and leaky, but better than nothing.
+3. Source a proper security-type list from another provider.
+
 ### Progress so far (committed, not yet run end-to-end)
 
 Three new modules are built, linted, typechecked, and committed — but **the strategy has not been backtested yet**. Nothing here has produced a number, so nothing here is evidence of anything:
@@ -30,12 +41,16 @@ Three new modules are built, linted, typechecked, and committed — but **the st
 - `src/strategies/momentum.py` — canonical 12-1 cross-sectional momentum
 - `src/backtest/portfolio.py` — monthly-rebalance portfolio backtester
 
-**Remaining to run it:**
-1. A universe-screening step (fetch a recent window across NYSE+NASDAQ, filter by price ≥ $5 and dollar volume ≥ $5M) — Alpaca has 8,470 tradable NYSE/NASDAQ names; screening all of them is ~17 batched requests, roughly 4 minutes.
-2. Fetch ~10 years of daily bars for the surviving universe.
-3. A runner script wiring screen → fetch → momentum → portfolio backtest → report.
-4. Benchmark against buy-and-hold over the identical window — this is the number that actually matters.
-5. Tests for the three new modules (none written yet).
+**Status of the run:**
+1. ✅ Universe screening — **done and cached** to `data/cache/momentum_universe.txt` (2,204 symbols, union of 4 point-in-time screens). Took ~11 minutes. But see the ETF contamination issue above.
+2. ❌ Fetch ~10 years of daily bars — not started. The run was stopped here.
+3. ✅ Runner script (`scripts/run_momentum_backtest.py`).
+4. ✅ Benchmarks + paired t-test vs SPY and equal-weight buy-and-hold.
+5. ✅ Tests — 25 added, 158 passing overall.
+
+**To resume:** fix the ETF issue, delete `data/cache/momentum_universe.txt` to force a re-screen, then rerun. Add `PYTHONUNBUFFERED=1` so progress is visible — the first run buffered all output and was impossible to monitor.
+
+Expect ~30-50 minutes total; it's network-bound, not CPU-bound.
 
 ### The fork to resolve first
 
