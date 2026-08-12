@@ -31,7 +31,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest
 
-from data.daily_bars import fetch_daily_bars
+from data.daily_bars import fetch_daily_bars_verified
 
 MAJOR_STOCK_EXCHANGES = ("AssetExchange.NYSE", "AssetExchange.NASDAQ")
 
@@ -84,7 +84,14 @@ class ScreenConfig:
     min_price: float = 5.0
     min_median_dollar_volume: float = 5_000_000.0
     window_days: int = 90
-    max_symbols_per_screen: int = 1500
+    # Safety valve only — the price and dollar-volume floors above are meant to
+    # be what actually decides investability. Set high enough to be non-binding:
+    # at 1500 this silently truncated the ranking and excluded First Republic
+    # despite $124M/day of dollar volume, purely because the candidate pool grew
+    # from ~6.8k to ~18.6k names after the survivorship fix. A cap that changes
+    # the universe when the *candidate list* changes is a selection effect, not
+    # a liquidity filter.
+    max_symbols_per_screen: int = 5000
 
 
 def list_candidate_symbols(
@@ -125,7 +132,7 @@ def screen_at_date(
     """Symbols meeting price/liquidity floors over the window ending at `screen_date`."""
     config = config or ScreenConfig()
     start = screen_date - timedelta(days=config.window_days)
-    panel = fetch_daily_bars(client, symbols, start, screen_date, progress=progress)
+    panel = fetch_daily_bars_verified(client, symbols, start, screen_date, progress=progress)
     if panel.empty:
         return []
 

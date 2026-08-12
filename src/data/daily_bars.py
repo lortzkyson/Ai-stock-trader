@@ -83,6 +83,50 @@ def fetch_daily_bars(
     return panel.sort_values(["timestamp", "symbol"]).reset_index(drop=True)
 
 
+def fetch_daily_bars_verified(
+    client: StockHistoricalDataClient,
+    symbols: list[str],
+    start: date,
+    end: date,
+    batch_size: int = BATCH_SIZE,
+    progress: bool = False,
+) -> pd.DataFrame:
+    """Fetch bars, then re-request anything that came back empty.
+
+    Alpaca silently collapses tickers that resolve to the same underlying
+    security. Requesting FRC and FRCB together (First Republic's NYSE listing
+    and its post-failure OTC ticker) returns only FRCB — FRC vanishes with no
+    error, no warning, and no missing-symbol field. Both return data fine when
+    requested apart.
+
+    That's a serious hazard for survivorship-bias correction specifically,
+    because delisted companies frequently pick up an aliased OTC ticker: the
+    very names being recovered are the ones most likely to be silently dropped,
+    and the failure looks identical to "this symbol legitimately has no data".
+
+    The second pass fixes it because only one side of a collision goes missing
+    — the winner already returned data, so it isn't in the retry set and can't
+    collide again. Symbols still empty after the retry are genuinely absent.
+    """
+    panel = fetch_daily_bars(client, symbols, start, end, batch_size, progress)
+    returned = set(panel["symbol"].unique()) if len(panel) else set()
+    missing = [s for s in symbols if s not in returned]
+    if not missing:
+        return panel
+
+    if progress:
+        print(f"  verifying {len(missing):,} symbols that returned no data...")
+    retry = fetch_daily_bars(client, missing, start, end, batch_size, progress)
+    if not len(retry):
+        return panel
+
+    recovered = retry["symbol"].nunique()
+    if progress and recovered:
+        print(f"  recovered {recovered:,} symbols on retry (alias collisions)")
+    combined = pd.concat([panel, retry], ignore_index=True)
+    return combined.sort_values(["timestamp", "symbol"]).reset_index(drop=True)
+
+
 def load_or_fetch_daily_panel(
     client: StockHistoricalDataClient,
     symbols: list[str],
