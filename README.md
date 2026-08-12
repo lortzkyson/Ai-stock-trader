@@ -22,7 +22,7 @@ Each `src/` package corresponds to one build phase and one concern. The backtest
 
 ## Known limitations
 
-- **Survivorship bias in the ticker universe** (`data/universe.csv`): the seed universe is a manually curated list of today's liquid large-cap names, not a point-in-time index membership feed. It excludes tickers that were delisted, acquired, or went bankrupt during any historical backtest period, so backtests will overstate performance relative to a survivorship-bias-free universe. Getting point-in-time constituent data typically requires a paid reference-data subscription; this is deferred rather than solved. See `src/data/universe.py` and [docs/pre-mortem.md](docs/pre-mortem.md) guard #2.
+- **Survivorship bias — RESOLVED for daily/cross-sectional strategies** (2026-08-12). Alpaca's asset list is current-only, but it *will* serve history for delisted tickers if you know the symbol, so the missing list is recoverable by brute force: `scripts/discover_universe.py` sweeps the full 1-4 letter ticker space at 21 historical dates. Recovery of known delistings went from 2/16 to 16/16; the universe grew 2,150 → 5,079. This mattered enormously — see [docs/next_steps.md](docs/next_steps.md), where correcting it collapsed a momentum backtest from +2,140% to +249%. Note the older minute-bar work (`data/universe.csv`, Phases 2-5) still uses the survivor-only large-cap list and remains biased.
 - **Halt/illiquidity detection is a proxy**, not a labeled feed: `src/data/quality.py` flags any trading day missing more than 5 minutes of expected minute bars as "halt-like" and excludes it from cleaned output. This catches real halts and severe illiquidity but could also flag a legitimately quiet session; the reasoning is documented in that module's docstring.
 - **Extended-hours bars are dropped.** Alpaca's default response includes pre/post-market bars; `clean_bars` restricts to the regular 09:30-16:00 ET session, since extended-hours volume is too thin for realistic fills (pre-mortem guard #6) and none of the phases as scoped trade outside regular hours. Confirmed against a real pull that this — and exchange-local vs. UTC timestamp handling — actually mattered: naively treating Alpaca's UTC timestamps as already exchange-local caused every trading day to misfire as "halt-like." Fixed in `src/data/quality.py`, covered by regression tests.
 
@@ -56,7 +56,7 @@ make monitor           # print live account/positions/PDT-count dashboard (paper
 .venv/bin/python scripts/kill_switch.py {status,engage,disengage} [--flatten]
 ```
 
-`scripts/paper_trading_loop.py` is complete and verified against the real Alpaca paper endpoint, but it is **not scheduled to run automatically** — see [docs/runbook.md](docs/runbook.md) for what it does each iteration and how to schedule it (cron/launchd) to actually accumulate a multi-week paper-trading track record, which Phase 8's go/no-go review needs before real money is even worth discussing.
+`scripts/paper_trading_loop.py` is complete, verified against the real Alpaca paper endpoint, and **currently scheduled** via a `launchd` agent (every 5 minutes, whenever the Mac is awake) — see [docs/runbook.md](docs/runbook.md) for what each iteration does and how to inspect or stop it. It trades paper money only; no live-order path exists. Bear in mind it's running the Phase 3-5 intraday model, which has no demonstrated edge — treat it as an operational track record, not strategy validation.
 
 ## Experiment log and holdout
 
