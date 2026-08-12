@@ -2,7 +2,7 @@
 
 Day-trading AI system, built in phases. Start with [docs/pre-mortem.md](docs/pre-mortem.md) — it's the living design spec every phase below follows. Key constraints from that doc: starting equity is under $25k (PDT rule applies), the strategy is a hybrid of day trades and occasional multi-day swing holds, and the target metric is **expectancy per trade + Sharpe/Sortino**, not raw win rate.
 
-> **Current status: NO-GO on real money.** All 9 phases are built and tested, but [docs/go_live_review.md](docs/go_live_review.md) is explicit that the model doesn't yet show an edge over a random baseline and there's no live/paper trading track record. No live-order-submission code exists anywhere in this repo. See [docs/runbook.md](docs/runbook.md) for day-to-day operation of what *is* here.
+> **Current status: NO-GO on real money.** All 9 phases are built and tested. Four strategy attempts (three intraday ML variants, one cross-sectional momentum) have found no edge that survives scrutiny. Survivorship bias is now fixed — and fixing it collapsed the most promising result from +2,140% to +249%, turning an apparent SPY-beater into a SPY-underperformer. See [docs/go_live_review.md](docs/go_live_review.md) and [docs/next_steps.md](docs/next_steps.md). No live-order-submission code exists anywhere in this repo.
 
 ## Architecture
 

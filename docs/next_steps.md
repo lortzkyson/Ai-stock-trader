@@ -22,7 +22,33 @@ Decision made: pursue a **documented anomaly with a structural reason to persist
 - **Daily bars: available and good.** Alpaca gives ~10.5 years (2016-01 → present) of SIP-quality adjusted daily bars, free. Far more statistical power than the 14 months of minute bars used so far.
 - **Earnings data: NOT available from Alpaca.** Its corporate-actions endpoint covers splits, dividends, mergers, spinoffs, name changes — no earnings dates and no consensus estimates.
 
-## RESULT: momentum ran. It does not show a demonstrated edge.
+## RESULT (final): survivorship bias was the entire story
+
+Survivorship bias is now **fixed** (see "Survivorship fix" below), and re-running momentum on the corrected universe collapses the result:
+
+| | survivors-only universe | survivorship-corrected |
+|---|---|---|
+| Universe size | 2,150 | **5,079** |
+| Total return | +2,140% | **+249%** |
+| CAGR | 35.2% | **12.9%** |
+| Sharpe | 0.95 | **0.50** |
+| Max drawdown | -42.6% | **-48.4%** |
+| vs SPY | beat, p=0.026 | **underperforms**, p=0.65 |
+
+**The strategy loses to SPY buy-and-hold** (12.9% vs 14.8% CAGR) while running 2.26x the volatility and a deeper drawdown. Sharpe 0.50 vs SPY's 0.87. You'd have done better buying SPY and ignoring it — and dramatically better than the vol-matched comparison (-1,214pp).
+
+**The asymmetry confirms the fix is working correctly rather than just adding noise.** Restoring delisted companies drags down *any* long strategy, but it should hit momentum far harder, because momentum deliberately concentrates in speculative names — precisely the cohort that goes to zero:
+
+- equal-weight universe benchmark: +344% → +255% (**-26%**)
+- momentum strategy: +2,140% → +249% (**-88%**)
+
+Momentum was hit **3.4x harder** than the benchmark. That's exactly the predicted signature.
+
+**Bottom line: the earlier +2,140% was an artifact of measuring a strategy in a world where SVB, First Republic, Signature Bank, WeWork and Rite Aid never failed.** Two independent checks now agree there's no edge here — the vol-matched benchmark said so before the fix, and the corrected universe says so after.
+
+---
+
+## Superseded: the pre-fix analysis (kept for the reasoning)
 
 Full numbers in `reports/momentum_2026-08-11_213446.md`. Headline looks spectacular and is misleading:
 
@@ -53,6 +79,21 @@ Significance evaporates by 5%/yr. For speculative biotech and crypto miners over
 **If continuing down this path**, the highest-value next step is fixing survivorship bias — sourcing a point-in-time constituent list (delisted price history *is* available from Alpaca; only the membership list is missing). Without that, no equity backtest here can be trusted, and that limitation now has a measured magnitude rather than a hand-wave.
 
 ---
+
+### RESOLVED — Survivorship bias (fixed 2026-08-12)
+
+Recovery of known delistings went from **2/16 to 16/16**. Universe grew 2,150 → 5,079 (2,949 net new names).
+
+How, and why the obvious approach was wrong:
+- **Alpaca's corporate-actions feed does not work for this.** It captures mergers but almost no bankruptcies — 2 of 16 known failures. Using it alone would have made the bias *worse*, adding companies acquired at a premium while still hiding the ones that went to zero.
+- **What works:** Alpaca serves history for delisted tickers if you know the symbol, so the missing list is recoverable by brute force. `scripts/discover_universe.py` sweeps the full 1-4 letter ticker space at 21 semi-annual dates (~18,633 symbols ever traded vs ~11,461 alive today); `scripts/screen_master_universe.py` then screens that for liquidity.
+
+Three bugs found and fixed during this, each of which would have silently corrupted the result:
+1. **Ticker-alias collisions.** Requesting `FRC` and `FRCB` together (First Republic's NYSE listing and its post-failure OTC ticker — same entity) returns only `FRCB`; `FRC` vanishes with no error. Dangerous *because it correlates with the fix*: delisted companies routinely acquire an aliased OTC ticker. Fixed via `fetch_daily_bars_verified`.
+2. **Binding universe cap.** `max_symbols_per_screen=1500` was truncating every screen (all returned exactly 1500), so the universe was arbitrarily cut rather than liquidity-determined. Raised to 5,000.
+3. **Silent sweep hang.** No socket timeout meant a dropped connection blocked forever — the process stayed alive, burned no CPU, and never advanced. Fixed with a timeout plus bounded retry.
+
+Remaining limitation: the ETF name-filter can only be applied to currently-listed symbols, since Alpaca serves no names for delisted tickers. Restricting to 1-4 letter symbols excludes mutual funds, but a delisted leveraged ETF could still pass the liquidity screen.
 
 ### RESOLVED — ETF contamination (fixed 2026-08-11)
 
