@@ -52,7 +52,12 @@ SCREEN_DATES = [date(2017, 6, 30), date(2020, 6, 30), date(2023, 6, 30), date(20
 BENCHMARK_SYMBOL = "SPY"
 STARTING_EQUITY = 10_000.0
 
-UNIVERSE_CACHE = REPO_ROOT / "data" / "cache" / "momentum_universe.txt"
+# Survivorship-corrected universe, built by scripts/discover_universe.py +
+# scripts/screen_master_universe.py. Includes companies that delisted, went
+# bankrupt or were acquired during the period — without them, momentum is
+# measured only on survivors, which flatters exactly the speculative names it
+# tends to pick.
+UNIVERSE_CACHE = REPO_ROOT / "data" / "cache" / "momentum_universe_survivorship_corrected.txt"
 
 
 def fmt(x: float) -> str:

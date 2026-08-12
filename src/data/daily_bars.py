@@ -139,7 +139,9 @@ def load_or_fetch_daily_panel(
     if path.exists():
         return pd.read_parquet(path)
 
-    panel = fetch_daily_bars(client, symbols, start, end, progress=progress)
+    # Verified variant: without it, aliased tickers recovered by the
+    # survivorship fix would be silently dropped again here.
+    panel = fetch_daily_bars_verified(client, symbols, start, end, progress=progress)
     path.parent.mkdir(parents=True, exist_ok=True)
     panel.to_parquet(path, index=False)
     return panel
