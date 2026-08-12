@@ -31,9 +31,11 @@ from __future__ import annotations
 import itertools
 import json
 import string
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
 from alpaca.data.historical import StockHistoricalDataClient
 
 from data.daily_bars import fetch_daily_bars
@@ -43,6 +45,36 @@ DEFAULT_DISCOVERY_CACHE = REPO_ROOT / "data" / "cache" / "ticker_discovery"
 
 PROBE_WINDOW_DAYS = 7
 PROBE_BATCH_SIZE = 500
+MAX_BATCH_ATTEMPTS = 4
+RETRY_BACKOFF_SECONDS = 3.0
+
+
+def _fetch_batch_with_retry(
+    client: StockHistoricalDataClient,
+    batch: list[str],
+    start: date,
+    end: date,
+) -> pd.DataFrame:
+    """Fetch one batch, retrying transient network failures.
+
+    A sweep runs for the better part of an hour, so it *will* meet a dropped
+    connection — a laptop sleeping mid-run is enough. Without this, the
+    underlying HTTP read blocks indefinitely and the whole sweep silently
+    wedges: the process stays alive, burns no CPU, and never advances. That
+    happened. Callers should also set a socket-level default timeout so a dead
+    connection raises instead of hanging forever (see scripts/discover_universe.py).
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_BATCH_ATTEMPTS + 1):
+        try:
+            return fetch_daily_bars(client, batch, start, end, batch_size=PROBE_BATCH_SIZE)
+        except Exception as exc:  # network/API errors vary by layer
+            last_error = exc
+            if attempt < MAX_BATCH_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+    raise RuntimeError(
+        f"batch of {len(batch)} symbols failed after {MAX_BATCH_ATTEMPTS} attempts"
+    ) from last_error
 
 
 def all_candidate_tickers(max_len: int = 4) -> list[str]:
@@ -81,7 +113,7 @@ def probe_existing_symbols(
     found: set[str] = set()
     for i in range(0, len(candidates), PROBE_BATCH_SIZE):
         batch = candidates[i : i + PROBE_BATCH_SIZE]
-        panel = fetch_daily_bars(client, batch, start, probe_date, batch_size=PROBE_BATCH_SIZE)
+        panel = _fetch_batch_with_retry(client, batch, start, probe_date)
         if len(panel):
             found.update(panel["symbol"].unique())
         if progress and (i // PROBE_BATCH_SIZE) % 100 == 0:

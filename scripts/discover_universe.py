@@ -8,12 +8,20 @@ corporate-actions feed is not a substitute.
 from __future__ import annotations
 
 import os
+import socket
 import sys
 from datetime import date
 from pathlib import Path
 
 from alpaca.data.historical import StockHistoricalDataClient
 from dotenv import load_dotenv
+
+# A sweep takes ~an hour of continuous HTTP requests, so it will meet a dropped
+# connection — a laptop sleeping mid-run is enough. The Alpaca SDK sets no read
+# timeout, so a dead socket blocks forever: the process stays alive, burns no
+# CPU, and never advances. This makes it raise instead, so the retry logic in
+# data.ticker_discovery can actually do its job.
+socket.setdefaulttimeout(60)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 

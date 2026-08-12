@@ -136,3 +136,46 @@ def test_discover_master_universe_unions_across_dates(tmp_path: Path, monkeypatc
 
 def test_union_of_empty() -> None:
     assert union_of({}) == []
+
+
+def test_batch_fetch_retries_transient_failures(monkeypatch) -> None:
+    """A dropped connection mid-sweep must be retried, not fatal.
+
+    Regression guard: the first real sweep wedged silently for ~4 hours after
+    the machine slept, because a blocked HTTP read had no timeout and no retry.
+    """
+    import data.ticker_discovery as td
+
+    calls = {"n": 0}
+
+    def flaky(c, syms, s, e, batch_size=500, progress=False):  # noqa: ANN001
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ConnectionError("connection reset")
+        return pd.DataFrame(
+            [{"symbol": "AAPL", "timestamp": pd.Timestamp("2020-06-10", tz="UTC"),
+              "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1}]
+        )
+
+    monkeypatch.setattr(td, "fetch_daily_bars", flaky)
+    monkeypatch.setattr(td, "RETRY_BACKOFF_SECONDS", 0.0)
+
+    out = td._fetch_batch_with_retry(None, ["AAPL"], date(2020, 6, 8), date(2020, 6, 15))
+
+    assert len(out) == 1
+    assert calls["n"] == 3
+
+
+def test_batch_fetch_gives_up_after_max_attempts(monkeypatch) -> None:
+    import pytest
+
+    import data.ticker_discovery as td
+
+    def always_fails(c, syms, s, e, batch_size=500, progress=False):  # noqa: ANN001
+        raise ConnectionError("still down")
+
+    monkeypatch.setattr(td, "fetch_daily_bars", always_fails)
+    monkeypatch.setattr(td, "RETRY_BACKOFF_SECONDS", 0.0)
+
+    with pytest.raises(RuntimeError, match="failed after"):
+        td._fetch_batch_with_retry(None, ["AAPL"], date(2020, 6, 8), date(2020, 6, 15))
