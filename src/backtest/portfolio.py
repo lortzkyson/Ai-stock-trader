@@ -24,11 +24,34 @@ import pandas as pd
 
 from backtest.costs import sell_regulatory_fees
 
+TRADING_DAYS_PER_YEAR = 252
+
 
 @dataclass
 class PortfolioBacktestConfig:
     starting_equity: float = 10_000.0
     slippage_bps: float = 5.0
+
+    # Volatility scaling (Barroso & Santa-Clara 2015). Momentum's defining
+    # weakness is crash risk: it loads up on high-beta winners and then gets
+    # destroyed at market reversals. Scaling exposure by the strategy's own
+    # trailing realized volatility targets a constant risk level, cutting
+    # exposure into turbulent periods. `vol_target=None` disables it, which is
+    # the unscaled baseline.
+    #
+    # 126 days (~6 months) is the published lookback; the 12% target is also
+    # from the paper. Neither is tuned against this dataset — see
+    # strategies/momentum.py on why that matters.
+    vol_target: float | None = None
+    vol_lookback_days: int = 126
+    max_exposure: float = 1.0  # 1.0 = never lever; raise only deliberately
+
+    # Annualized stock-borrow cost charged daily on short market value.
+    # 3% is a deliberately mild assumption: the bottom momentum decile is
+    # disproportionately small, beaten-down and heavily shorted — exactly the
+    # hard-to-borrow names where real rates run 10-50%+ and borrow can be
+    # recalled outright. Treat short-leg results as an optimistic upper bound.
+    short_borrow_annual_rate: float = 0.03
 
 
 @dataclass
@@ -37,6 +60,7 @@ class PortfolioBacktestResult:
     trades: pd.DataFrame
     turnover: pd.Series
     holdings_history: list[dict] = field(default_factory=list)
+    exposure: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
 
 
 def run_portfolio_backtest(
@@ -44,6 +68,7 @@ def run_portfolio_backtest(
     close_prices: pd.DataFrame,
     open_prices: pd.DataFrame,
     config: PortfolioBacktestConfig | None = None,
+    short_targets: dict[pd.Timestamp, list[str]] | None = None,
 ) -> PortfolioBacktestResult:
     config = config or PortfolioBacktestConfig()
     slip = config.slippage_bps / 10_000
@@ -51,13 +76,19 @@ def run_portfolio_backtest(
     dates = list(close_prices.index)
     date_position = {d: i for i, d in enumerate(dates)}
 
+    def _shift_to_fill_date(plan: dict[pd.Timestamp, list[str]]) -> dict[pd.Timestamp, list[str]]:
+        shifted: dict[pd.Timestamp, list[str]] = {}
+        for signal_date, symbols in plan.items():
+            i = date_position.get(signal_date)
+            if i is None or i + 1 >= len(dates):
+                continue  # no next session to fill on (end of data)
+            shifted[dates[i + 1]] = symbols
+        return shifted
+
     # Map each signal date to the next trading day, where the trade actually fills.
-    execution_plan: dict[pd.Timestamp, list[str]] = {}
-    for signal_date, symbols in targets.items():
-        i = date_position.get(signal_date)
-        if i is None or i + 1 >= len(dates):
-            continue  # no next session to fill on (end of data)
-        execution_plan[dates[i + 1]] = symbols
+    execution_plan = _shift_to_fill_date(targets)
+    short_plan = _shift_to_fill_date(short_targets or {})
+    daily_borrow_rate = config.short_borrow_annual_rate / TRADING_DAYS_PER_YEAR
 
     cash = config.starting_equity
     holdings: dict[str, int] = {}
@@ -66,11 +97,19 @@ def run_portfolio_backtest(
     trades: list[dict] = []
     holdings_history: list[dict] = []
 
+    exposure_by_date: dict[pd.Timestamp, float] = {}
+
     for current_date in dates:
-        if current_date in execution_plan:
-            target_symbols = execution_plan[current_date]
+        if current_date in execution_plan or current_date in short_plan:
+            target_symbols = execution_plan.get(current_date, [])
+            short_symbols = short_plan.get(current_date, [])
+            # Uses only equity observed strictly before today, so the exposure
+            # decision can't peek at the return it's about to earn.
+            exposure = _target_exposure(equity_by_date, config)
+            exposure_by_date[current_date] = exposure
             cash, holdings, executed, traded_value = _rebalance(
-                cash, holdings, target_symbols, open_prices.loc[current_date], slip, current_date
+                cash, holdings, target_symbols, open_prices.loc[current_date], slip,
+                current_date, exposure, short_symbols,
             )
             trades.extend(executed)
             pre_trade_equity = _mark_to_market(cash, holdings, open_prices.loc[current_date])
@@ -81,6 +120,16 @@ def run_portfolio_backtest(
                 {"date": current_date, "n_positions": len(holdings), "symbols": sorted(holdings)}
             )
 
+        # Borrow cost accrues daily on the market value of short positions.
+        if daily_borrow_rate > 0:
+            day_close = close_prices.loc[current_date]
+            short_value = sum(
+                abs(sh) * day_close.get(sym, np.nan)
+                for sym, sh in holdings.items()
+                if sh < 0 and not np.isnan(day_close.get(sym, np.nan))
+            )
+            cash -= short_value * daily_borrow_rate
+
         equity_by_date[current_date] = _mark_to_market(
             cash, holdings, close_prices.loc[current_date]
         )
@@ -90,7 +139,29 @@ def run_portfolio_backtest(
         trades=pd.DataFrame(trades),
         turnover=pd.Series(turnover_by_date).sort_index(),
         holdings_history=holdings_history,
+        exposure=pd.Series(exposure_by_date).sort_index(),
     )
+
+
+def _target_exposure(
+    equity_by_date: dict[pd.Timestamp, float], config: PortfolioBacktestConfig
+) -> float:
+    """Fraction of equity to deploy, from trailing realized strategy volatility."""
+    if config.vol_target is None:
+        return config.max_exposure
+
+    equity = pd.Series(equity_by_date).sort_index()
+    if len(equity) < 30:
+        return config.max_exposure  # not enough history to estimate vol yet
+
+    returns = equity.pct_change().dropna().tail(config.vol_lookback_days)
+    if len(returns) < 20:
+        return config.max_exposure
+
+    realized_vol = float(returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
+    if realized_vol <= 0:
+        return config.max_exposure
+    return float(min(config.vol_target / realized_vol, config.max_exposure))
 
 
 def _mark_to_market(cash: float, holdings: dict[str, int], prices: pd.Series) -> float:
@@ -109,12 +180,41 @@ def _rebalance(
     execution_prices: pd.Series,
     slip: float,
     current_date: pd.Timestamp,
+    exposure: float = 1.0,
+    short_symbols: list[str] | None = None,
 ) -> tuple[float, dict[str, int], list[dict], float]:
     executed: list[dict] = []
     traded_value = 0.0
+    short_symbols = short_symbols or []
+
+    # 0. Close shorts that are no longer targets (buy them back).
+    for symbol in list(holdings):
+        if holdings[symbol] >= 0:
+            continue
+        price = execution_prices.get(symbol, np.nan)
+        if symbol in short_symbols and not np.isnan(price):
+            continue
+        if np.isnan(price):
+            executed.append(
+                {"date": current_date, "symbol": symbol, "side": "drop_no_price",
+                 "shares": holdings[symbol], "price": np.nan, "fees": 0.0}
+            )
+            del holdings[symbol]
+            continue
+        shares = -holdings.pop(symbol)  # positive count to buy back
+        fill = price * (1 + slip)  # covering pushes price up against us
+        cost = shares * fill
+        cash -= cost
+        traded_value += cost
+        executed.append(
+            {"date": current_date, "symbol": symbol, "side": "cover",
+             "shares": shares, "price": fill, "fees": 0.0}
+        )
 
     # 1. Sell everything not in the new target (and anything with no price today).
     for symbol in list(holdings):
+        if holdings[symbol] < 0:
+            continue  # shorts handled above
         price = execution_prices.get(symbol, np.nan)
         if symbol in target_symbols and not np.isnan(price):
             continue
@@ -142,11 +242,16 @@ def _rebalance(
 
     # 2. Equal-weight the target names against total post-sale equity.
     investable = [s for s in target_symbols if not np.isnan(execution_prices.get(s, np.nan))]
-    if not investable:
+    shortable = [s for s in short_symbols if not np.isnan(execution_prices.get(s, np.nan))]
+    if not investable and not shortable:
         return cash, holdings, executed, traded_value
 
     equity = _mark_to_market(cash, holdings, execution_prices)
-    target_value_each = equity / len(investable)
+    # Only `exposure` of equity is deployed; the remainder stays in cash. With
+    # vol scaling this is how risk gets dialled down in turbulent regimes.
+    target_value_each = (equity * exposure) / len(investable) if investable else 0.0
+    # Short leg sized to match the long leg's gross notional (dollar-neutral).
+    short_value_each = (equity * exposure) / len(shortable) if shortable else 0.0
 
     # 2a. Trim positions that are now overweight, freeing cash before buying.
     for symbol in list(holdings):
@@ -191,5 +296,42 @@ def _rebalance(
             {"date": current_date, "symbol": symbol, "side": "buy",
              "shares": to_buy, "price": fill, "fees": 0.0}
         )
+
+    # 2c. Open/extend short positions. Proceeds credit cash; the negative
+    # holding is what actually carries the risk, and borrow is charged daily
+    # in the main loop.
+    for symbol in shortable:
+        price = execution_prices[symbol]
+        current_shares = holdings.get(symbol, 0)
+        target_shares = -int(short_value_each // (price * (1 - slip)))
+        delta = current_shares - target_shares  # >0 short more, <0 buy some back
+
+        if delta > 0:
+            fill = price * (1 - slip)  # shorting into the bid
+            proceeds = delta * fill
+            fees = sell_regulatory_fees(delta, fill)
+            cash += proceeds - fees
+            traded_value += proceeds
+            holdings[symbol] = current_shares - delta
+            executed.append(
+                {"date": current_date, "symbol": symbol, "side": "short",
+                 "shares": delta, "price": fill, "fees": fees}
+            )
+        elif delta < 0:
+            # Trim an oversized short. Without this the position ratchets up
+            # forever: a short that moves against you grows in absolute size
+            # while equity shrinks, and it never gets rebalanced back down.
+            to_cover = -delta
+            fill = price * (1 + slip)
+            cost = to_cover * fill
+            cash -= cost
+            traded_value += cost
+            holdings[symbol] = current_shares + to_cover
+            if holdings[symbol] == 0:
+                del holdings[symbol]
+            executed.append(
+                {"date": current_date, "symbol": symbol, "side": "cover",
+                 "shares": to_cover, "price": fill, "fees": 0.0}
+            )
 
     return cash, holdings, executed, traded_value

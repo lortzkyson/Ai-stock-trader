@@ -124,3 +124,58 @@ def build_target_portfolios(
         if selected:
             targets[rebalance_date] = selected
     return targets, prices
+
+
+def select_losers(
+    scores: pd.DataFrame,
+    prices: pd.DataFrame,
+    dollar_volume: pd.DataFrame,
+    rebalance_date: pd.Timestamp,
+    config: MomentumConfig,
+) -> list[str]:
+    """Bottom-N momentum names — the short leg of classic long-short momentum.
+
+    Same eligibility gates as the long leg. In practice the short leg is the
+    harder one to actually trade: beaten-down small caps are exactly the names
+    that are expensive or impossible to borrow, which the backtester charges for
+    but cannot fully capture.
+    """
+    if rebalance_date not in scores.index:
+        return []
+
+    day_scores = cast(pd.Series, scores.loc[rebalance_date])
+    day_prices = cast(pd.Series, prices.loc[rebalance_date])
+    day_dv = (
+        cast(pd.Series, dollar_volume.loc[rebalance_date])
+        if rebalance_date in dollar_volume.index
+        else None
+    )
+
+    eligible = day_scores.notna() & day_prices.notna() & (day_prices >= config.min_price)
+    if day_dv is not None:
+        eligible &= day_dv.notna() & (day_dv >= config.min_dollar_volume)
+
+    candidates = day_scores.loc[eligible]
+    if candidates.empty:
+        return []
+    return list(candidates.nsmallest(config.n_positions).index)
+
+
+def build_long_short_portfolios(
+    panel: pd.DataFrame, config: MomentumConfig
+) -> tuple[dict[pd.Timestamp, list[str]], dict[pd.Timestamp, list[str]], pd.DataFrame]:
+    """Return (long targets, short targets, price matrix) for long-short momentum."""
+    prices = build_price_matrix(panel, "close")
+    scores = compute_momentum_scores(prices, config)
+    dollar_volume = compute_dollar_volume(panel, config)
+
+    longs: dict[pd.Timestamp, list[str]] = {}
+    shorts: dict[pd.Timestamp, list[str]] = {}
+    for rebalance_date in month_end_rebalance_dates(prices):
+        winners = select_positions(scores, prices, dollar_volume, rebalance_date, config)
+        losers = select_losers(scores, prices, dollar_volume, rebalance_date, config)
+        if winners:
+            longs[rebalance_date] = winners
+        if losers:
+            shorts[rebalance_date] = losers
+    return longs, shorts, prices

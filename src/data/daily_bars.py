@@ -181,6 +181,56 @@ def check_daily_quality(
     )
 
 
+def split_discontinuous_series(
+    panel: pd.DataFrame, max_daily_return: float = 3.0
+) -> pd.DataFrame:
+    """Drop history preceding a price discontinuity that implies a new security.
+
+    When a company goes through bankruptcy and reorganizes, the ticker often
+    survives but the equity does not: old shares are cancelled at pennies and
+    new shares are issued under the same symbol. Alpaca's adjustment pipeline
+    doesn't correct for this — it isn't a split — so the raw series contains a
+    fabricated overnight gain. Measured on the survivorship-corrected universe:
+    GPOR +52,648% (\\$0.14 -> \\$72.95), LINE +44,787%, OAS +19,893%, and 412
+    days panel-wide exceeding +100%.
+
+    This matters far more than it sounds. These artifacts cluster in beaten-down
+    names, which is exactly what a momentum short leg selects and what a
+    survivorship-bias correction pulls back in — so the correction that made the
+    backtest honest also imported the contamination. Left alone it produced a
+    -84% single-day portfolio loss.
+
+    Everything before the discontinuity is nulled rather than the symbol being
+    dropped: the post-reorganization company is a legitimate tradable security,
+    it just has no valid price history joining it to its predecessor. Momentum
+    scores spanning the break become NaN and the name is simply ineligible until
+    clean history accumulates.
+
+    3.0 (a 300% single-day move) is deliberately loose. Genuine squeezes reach
+    100-200%; nothing real reaches 300% in a session, so this only catches
+    artifacts.
+    """
+    if panel.empty:
+        return panel
+
+    out = panel.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
+    returns = out.groupby("symbol")["close"].pct_change(fill_method=None)
+    breaks = returns.abs() > max_daily_return
+    if not breaks.any():
+        return out
+
+    # For each affected symbol keep only rows at/after its LAST discontinuity.
+    break_rows = out.loc[breaks, ["symbol"]].copy()
+    break_rows["row"] = break_rows.index
+    last_break_idx = break_rows.groupby("symbol")["row"].max()
+    drop_mask = pd.Series(False, index=out.index)
+    for symbol, break_idx in last_break_idx.items():
+        symbol_rows = out.index[out["symbol"] == symbol]
+        drop_mask.loc[symbol_rows[symbol_rows < break_idx]] = True
+
+    return out.loc[~drop_mask].reset_index(drop=True)
+
+
 def clean_daily_panel(panel: pd.DataFrame) -> pd.DataFrame:
     """Drop duplicates and impossible values.
 
@@ -194,4 +244,5 @@ def clean_daily_panel(panel: pd.DataFrame) -> pd.DataFrame:
     inverted = panel["high"] < panel["low"]
     negative_volume = panel["volume"] < 0
     keep = ~(duplicates | non_positive | inverted | negative_volume)
-    return panel.loc[keep].reset_index(drop=True)
+    cleaned = panel.loc[keep].reset_index(drop=True)
+    return split_discontinuous_series(cleaned)
