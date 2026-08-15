@@ -122,6 +122,66 @@ def list_candidate_symbols(
     )
 
 
+# Note the absence of a bare "Trust": REITs are named "... Realty Trust",
+# "... Property Trust" and are genuine operating companies with earnings.
+# Matching the bare word deleted 41 symbols, almost all REITs (Digital Realty,
+# Camden Property, Empire State Realty), which would have removed most of a
+# sector rather than a fund type. Closed-end funds and commodity trusts are
+# caught by their more specific markers instead.
+FUND_NAME_PATTERN = re.compile(
+    r"\b(ETF|ETN|ETP|Fund|Index|Portfolio|iShares|ProShares|Direxion|SPDR|Invesco"
+    r"|Vanguard|Xtrackers|WisdomTree|VanEck|Global X|Ultra|UltraShort|Bull|Bear|[23]X"
+    r"|Term Trust|Physical\s+\w+\s+Trust|Grayscale|Sprott|Depositary\s+Receipt)\b",
+    re.I,
+)
+
+# Leveraged, inverse and volatility ETFs that must be excluded even when the
+# asset list can't name them (delisted symbols carry no name). These decay
+# structurally, so they sit permanently in the bottom momentum decile and get
+# shorted every single month — measured at 11.6% of all short-leg slots, with
+# UVXY alone selected 49 times. That is harvesting contango, not momentum.
+KNOWN_LEVERAGED_ETFS = frozenset({
+    "AAPU", "BOIL", "DUST", "FAS", "FAZ", "KOLD", "LABD", "LABU", "NUGT", "NVDL",
+    "SCO", "SOXL", "SOXS", "SPXL", "SPXS", "SPXU", "SQQQ", "TMF", "TMV", "TNA",
+    "TQQQ", "TSLL", "TZA", "UCO", "UPRO", "UVXY", "YINN", "VXX", "SVXY", "TSLQ",
+})
+
+
+def exclude_funds(
+    symbols: list[str], api_key: str | None = None, secret_key: str | None = None
+) -> list[str]:
+    """Drop ETFs/ETNs/funds, keeping only operating-company common stock.
+
+    Filtering by exchange is not sufficient: excluding ARCA (predominantly ETFs)
+    still leaves plenty of funds listed on NYSE and NASDAQ. Names are the
+    reliable signal — Alpaca labels them ("iShares MSCI...ETF", "Direxion Daily
+    ...", versus "Apple Inc. Common Stock").
+
+    Symbols absent from the asset list (delisted, recovered by ticker discovery)
+    have no name to check, so they fall back to the hardcoded leveraged/vol list.
+    """
+    api_key = api_key or os.environ["ALPACA_API_KEY"]
+    secret_key = secret_key or os.environ["ALPACA_SECRET_KEY"]
+    client = TradingClient(api_key, secret_key, paper=True)
+    assets = cast(
+        list[Any],
+        client.get_all_assets(
+            GetAssetsRequest(status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY)
+        ),
+    )
+    names = {a.symbol: (a.name or "") for a in assets}
+
+    kept = []
+    for symbol in symbols:
+        if symbol in KNOWN_LEVERAGED_ETFS:
+            continue
+        name = names.get(symbol)
+        if name and FUND_NAME_PATTERN.search(name):
+            continue
+        kept.append(symbol)
+    return kept
+
+
 def screen_at_date(
     client: StockHistoricalDataClient,
     symbols: list[str],

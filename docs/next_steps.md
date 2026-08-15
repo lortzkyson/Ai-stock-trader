@@ -95,7 +95,34 @@ Three bugs found and fixed during this, each of which would have silently corrup
 
 Remaining limitation: the ETF name-filter can only be applied to currently-listed symbols, since Alpaca serves no names for delisted tickers. Restricting to 1-4 letter symbols excludes mutual funds, but a delisted leveraged ETF could still pass the liquidity screen.
 
-### RESOLVED — ETF contamination (fixed 2026-08-11)
+### ETF contamination — was falsely marked resolved, actually fixed 2026-08-15
+
+**This section previously read "RESOLVED (fixed 2026-08-11)". It was not fixed.**
+Every momentum result in this project was produced on a universe still
+containing 27 leveraged/inverse/volatility ETFs (TQQQ, UPRO, SOXL, SQQQ, SPXU,
+UVXY, plus leveraged single-stock names AAPU/TSLL/NVDL). A blocking issue was
+written down, marked done, and then run past — which is worse than never
+noticing it, because a false "resolved" marker invites trusting the numbers.
+
+Measured impact before the real fix:
+- **Long leg: 1.2%** of slots (28/2240). The long-only results are essentially
+  unaffected and stand as reported.
+- **Short leg: 11.6%** of slots (259/2240) — UVXY 49x, SOXS 48x, LABD 32x,
+  DUST 22x. These instruments decay by design, so they sit permanently in the
+  bottom momentum decile and are shorted every month. That is harvesting
+  contango, not momentum, and it *flattered* the long-short results. Those were
+  still catastrophic (-92% drawdown), so the negative conclusion holds a
+  fortiori — the true figure is worse than reported.
+
+Fixed by `data.universe_screen.exclude_funds()`, which filters on Alpaca asset
+names plus a hardcoded leveraged/vol list for delisted symbols that carry no
+name. Universe 5,079 -> 3,900.
+
+One subtlety worth keeping: the first pattern matched a bare "Trust" and
+removed 41 symbols, almost all REITs (Digital Realty, Camden Property, Empire
+State Realty) — genuine operating companies with earnings. Deleting most of a
+sector to remove a fund type would have been a worse error than the one being
+fixed. The pattern now matches "Term Trust"/"Physical ... Trust" instead.
 
 **The screened universe contains ETFs, including leveraged single-stock ETFs.** Filtering to NYSE+NASDAQ (to exclude ARCA, which is predominantly ETFs) was not sufficient — plenty of ETFs list on NASDAQ/NYSE. Confirmed in the cached universe: `AAXJ` (iShares Asia ex-Japan) and `AAPU` (a 2x leveraged AAPL ETF), among 2,204 symbols.
 

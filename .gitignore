@@ -25,3 +25,5 @@ data/cron.log
 
 data/cache/ticker_discovery/
 data/cache/master_ticker_universe.txt
+
+data/cache/momentum_universe_final.txt
