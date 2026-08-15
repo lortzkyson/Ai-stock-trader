@@ -25,6 +25,14 @@ class RiskConfig:
     pdt_equity_threshold: float = 25_000.0
     barrier_config: TripleBarrierConfig = field(default_factory=TripleBarrierConfig)
 
+    # Ceiling on TOTAL deployed capital as a fraction of equity. 1.0 = never
+    # borrow. This exists because per-position limits do not compose: with
+    # max_position_fraction=0.25, eight individually-legal positions sum to 200%
+    # of equity. That is exactly what happened on the live paper account — it
+    # reached 1.99x gross leverage on margin with every single sizing check
+    # passing, because nothing was checking the aggregate.
+    max_gross_exposure: float = 1.0
+
 
 @dataclass
 class TradeDecision:
@@ -54,6 +62,7 @@ class RiskEngine:
         equity: float,
         trading_calendar: list[date],
         is_intended_day_trade: bool,
+        current_gross_exposure: float = 0.0,
     ) -> TradeDecision:
         """Check and size a proposed entry. Does NOT itself record a day trade —
         callers must call `self.day_trade_tracker.record_day_trade(date)`
@@ -82,6 +91,17 @@ class RiskEngine:
         )
         if shares <= 0:
             return TradeDecision(False, "position_size_zero")
+
+        # Aggregate check: per-position limits don't compose into a portfolio
+        # limit. Trim the order to whatever headroom is left, and refuse
+        # outright if there is none.
+        headroom = equity * self.config.max_gross_exposure - current_gross_exposure
+        if headroom <= 0:
+            return TradeDecision(False, "max_gross_exposure_reached")
+        affordable_shares = int(headroom // entry_price)
+        if affordable_shares <= 0:
+            return TradeDecision(False, "max_gross_exposure_reached")
+        shares = min(shares, affordable_shares)
 
         stop_price = entry_price * (1 - self.config.barrier_config.stop_loss_pct)
         target_price = entry_price * (1 + self.config.barrier_config.profit_target_pct)

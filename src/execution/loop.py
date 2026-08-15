@@ -246,12 +246,22 @@ def _check_entries(
             continue
 
         entry_price_estimate = float(bars.iloc[-1]["close"])
+        # Re-read gross exposure from the broker each iteration rather than
+        # tracking it locally: it must reflect fills that actually happened,
+        # including any this loop opened moments ago.
+        gross_exposure = sum(
+            abs(float(p.market_value)) for p in ctx.exec_client.get_positions()
+        )
         decision = ctx.risk_engine.evaluate_entry(
             as_of_date=ctx.today, entry_price=entry_price_estimate, equity=equity,
             trading_calendar=trading_calendar, is_intended_day_trade=True,
+            current_gross_exposure=gross_exposure,
         )
         if not decision.approved:
-            ctx.logger.log("entry_rejected", symbol=symbol, reason=decision.reason)
+            ctx.logger.log(
+                "entry_rejected", symbol=symbol, reason=decision.reason,
+                gross_exposure=gross_exposure, equity=equity,
+            )
             continue
 
         client_order_id = f"entry-{symbol}-{uuid.uuid4().hex[:6]}"
