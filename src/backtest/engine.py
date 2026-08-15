@@ -122,11 +122,19 @@ def run_backtest(
                 fill_price = simulate_entry_fill(pd.Series(row._asdict()), fill_config)
                 if fill_price is not None:
                     equity_estimate = _mark_to_market(cash, open_positions, last_close)
+                    # Must be passed explicitly: omitting it takes the 0.0
+                    # default, so the gross-exposure cap silently never binds
+                    # here while it does bind live. That reintroduces exactly
+                    # the backtest/live divergence Phase 6 shares this engine
+                    # to prevent — the code was shared, but the call sites
+                    # disagreed, which is where the split crept back in.
+                    gross_exposure = _gross_exposure(open_positions, last_close)
                     decision = risk_engine.evaluate_entry(
                         as_of_date=current_date,
                         entry_price=fill_price,
                         equity=equity_estimate,
                         trading_calendar=trading_calendar,
+                        current_gross_exposure=gross_exposure,
                         # Exits here are triggered by stop/target/max-holding, not a
                         # pre-planned same-day close, so we can't know in advance
                         # whether a given entry will end up being a day trade.
@@ -241,7 +249,18 @@ def _close_position(
 def _mark_to_market(
     cash: float, open_positions: dict[str, OpenPosition], last_close: dict[str, float]
 ) -> float:
-    positions_value = sum(
-        pos.shares * last_close.get(pos.symbol, pos.entry_price) for pos in open_positions.values()
+    return cash + _gross_exposure(open_positions, last_close)
+
+
+def _gross_exposure(
+    open_positions: dict[str, OpenPosition], last_close: dict[str, float]
+) -> float:
+    """Total market value of open positions, ignoring cash.
+
+    This is what the risk engine's aggregate cap is measured against — equity
+    tells you what you own, gross exposure tells you how much you're carrying.
+    """
+    return sum(
+        abs(pos.shares) * last_close.get(pos.symbol, pos.entry_price)
+        for pos in open_positions.values()
     )
-    return cash + positions_value

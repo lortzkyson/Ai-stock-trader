@@ -169,3 +169,52 @@ def test_fees_are_deducted_from_realized_pnl() -> None:
     gross = (trade["exit_price"] - trade["entry_price"]) * trade["shares"]
     assert trade["fees"] > 0
     assert trade["pnl"] == pytest.approx(gross - trade["fees"])
+
+
+def test_backtester_passes_gross_exposure_to_risk_engine() -> None:
+    """Regression: the backtester called evaluate_entry without
+    current_gross_exposure, taking the 0.0 default, so the aggregate cap could
+    never bind here while it did bind live.
+
+    The effect was latent rather than visible: this backtester requires cash for
+    every purchase and models no margin, so it cannot exceed 1x anyway. The live
+    account reached 1.99x precisely because Alpaca *does* extend margin. So this
+    asserts the wiring directly - once a position is open, the engine must be
+    told about it - rather than an effect the cash constraint already masks.
+    """
+    rows = []
+    for day in range(3):
+        date_str = f"2026-01-{5 + day:02d}"
+        rows.append((f"{date_str} 09:30", 100.0, 100.1, 99.95, 100.0))
+        rows.append((f"{date_str} 09:31", 100.0, 100.1, 99.95, 100.0))
+        rows.append((f"{date_str} 09:32", 100.0, 100.1, 99.95, 100.0))
+    bars = _bars(rows)
+
+    barrier = TripleBarrierConfig(profit_target_pct=0.5, stop_loss_pct=0.01, max_holding_bars=999)
+    engine = RiskEngine(RiskConfig(
+        barrier_config=barrier, daily_loss_limit_pct=0.9, max_drawdown_pct=0.9,
+        pdt_equity_threshold=0.0, max_position_fraction=0.2,
+    ))
+
+    seen: list[float] = []
+    original = engine.evaluate_entry
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("current_gross_exposure", 0.0))
+        return original(*args, **kwargs)
+
+    engine.evaluate_entry = spy  # type: ignore[method-assign]
+
+    symbols = {f"S{i}": bars for i in range(3)}
+    sigs = {f"S{i}": _signals(bars, {0, 3}) for i in range(3)}
+    run_backtest(
+        symbols, sigs, engine, FillConfig(slippage_bps=0.0),
+        starting_equity=100_000,
+        trading_calendar=[pd.Timestamp(f"2026-01-{5 + d:02d}").date() for d in range(3)],
+    )
+
+    assert seen, "evaluate_entry was never called"
+    assert any(v > 0 for v in seen), (
+        "current_gross_exposure was always 0 - the backtester is not telling the "
+        "risk engine about open positions, so the aggregate cap cannot bind"
+    )
